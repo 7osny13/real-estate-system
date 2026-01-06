@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام إدارة المشاريع العقارية - محدث</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Supabase Client Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Supabase Configuration -->
+    <script src="config.js"></script>
+    <style>
+        :root {
+            --primary: #1a4d2e;
+            --primary-light: #2d7a4f;
+            --secondary: #d4af37;
+            --accent: #c7923e;
+            --bg-main: #f8f7f4;
+            --bg-card: #ffffff;
+            --text-primary: #1a1a1a;
+            --text-secondary: #5a5a5a;
+            --border: #e5e3dc;
+            --shadow: rgba(26, 77, 46, 0.08);
+            --success: #2d7a4f;
+            --warning: #f39c12;
+            --danger: #c0392b;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Cairo', sans-serif;
+            background: var(--bg-main);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+            color: white;
+            padding: 2rem 0;
+            box-shadow: 0 4px 20px var(--shadow);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            animation: slideDown 0.5s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                transform: translateY(-100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .logo {
+            font-family: 'Amiri', serif;
+            font-size: 2rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .logo-icon {
+            width: 50px;
+            height: 50px;
+            background: var(--secondary);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            transform: rotate(-5deg);
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: rotate(-5deg) translateY(0px); }
+            50% { transform: rotate(-5deg) translateY(-10px); }
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .nav-tab {
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .nav-tab:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .nav-tab.active {
+            background: var(--secondary);
+            border-color: var(--secondary);
+            box-shadow: 0 4px 16px rgba(212, 175, 55, 0.4);
+        }
+
+        .main-content {
+            padding: 3rem 0;
+            animation: fadeIn 0.6s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .view {
+            display: none;
+        }
+
+        .view.active {
+            display: block;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border-radius: 20px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 8px 30px var(--shadow);
+            border: 1px solid var(--border);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            box-shadow: 0 12px 40px rgba(26, 77, 46, 0.12);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 3px solid var(--secondary);
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .card-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--primary);
+            font-family: 'Amiri', serif;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Cairo', sans-serif;
+            font-size: 1rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 4px 12px rgba(26, 77, 46, 0.3);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-light);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(26, 77, 46, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--secondary);
+            color: white;
+            box-shadow: 0 4px 12px rgba(212, 175, 55, 0.3);
+        }
+
+        .btn-secondary:hover {
+            background: var(--accent);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(212, 175, 55, 0.4);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #a93226;
+            transform: translateY(-2px);
+        }
+
+        .btn-warning {
+            background: var(--warning);
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #e67e22;
+            transform: translateY(-2px);
+        }
+
+        .btn-sm {
+            padding: 0.5rem 1rem;
+            font-size: 0.9rem;
+        }
+
+        .btn-xs {
+            padding: 0.35rem 0.75rem;
+            font-size: 0.85rem;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .form-label {
+            font-weight: 600;
+            color: var(--primary);
+            font-size: 0.95rem;
+        }
+
+        .form-control {
+            padding: 0.875rem;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            font-family: 'Cairo', sans-serif;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background: var(--bg-main);
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(26, 77, 46, 0.1);
+            background: white;
+        }
+
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .project-card {
+            background: white;
+            border-radius: 16px;
+            padding: 1.5rem;
+            border: 2px solid var(--border);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .project-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+        }
+
+        .project-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(26, 77, 46, 0.15);
+            border-color: var(--primary);
+        }
+
+        .project-name {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 1rem;
+            font-family: 'Amiri', serif;
+        }
+
+        .project-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .stat {
+            background: var(--bg-main);
+            padding: 0.75rem;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            margin-top: 1.5rem;
+            border-radius: 12px;
+            border: 2px solid var(--border);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        th {
+            background: var(--primary);
+            color: white;
+            padding: 1rem;
+            text-align: right;
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover {
+            background: var(--bg-main);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.35rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: rgba(45, 122, 79, 0.1);
+            color: var(--success);
+        }
+
+        .badge-warning {
+            background: rgba(243, 156, 18, 0.1);
+            color: var(--warning);
+        }
+
+        .badge-danger {
+            background: rgba(192, 57, 43, 0.1);
+            color: var(--danger);
+        }
+
+        .badge-info {
+            background: rgba(52, 152, 219, 0.1);
+            color: #3498db;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(5px);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.3s ease-out;
+            overflow-y: auto;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 20px;
+            padding: 2rem;
+            max-width: 900px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: slideUp 0.3s ease-out;
+            margin: 2rem auto;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 3px solid var(--secondary);
+        }
+
+        .modal-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--primary);
+            font-family: 'Amiri', serif;
+        }
+
+        .close-modal {
+            background: none;
+            border: none;
+            font-size: 2rem;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.3s ease;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+        }
+
+        .close-modal:hover {
+            background: var(--bg-main);
+            color: var(--danger);
+            transform: rotate(90deg);
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .summary-card {
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            color: white;
+            padding: 1.5rem;
+            border-radius: 16px;
+            box-shadow: 0 8px 30px rgba(26, 77, 46, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .summary-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(26, 77, 46, 0.3);
+        }
+
+        .summary-card.gold {
+            background: linear-gradient(135deg, var(--secondary), var(--accent));
+        }
+
+        .summary-card.danger {
+            background: linear-gradient(135deg, var(--danger), #a93226);
+        }
+
+        .summary-label {
+            font-size: 0.95rem;
+            opacity: 0.9;
+            margin-bottom: 0.5rem;
+        }
+
+        .summary-value {
+            font-size: 2rem;
+            font-weight: 700;
+            font-family: 'Amiri', serif;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--text-secondary);
+        }
+
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            opacity: 0.3;
+        }
+
+        .empty-state-text {
+            font-size: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .currency {
+            color: var(--secondary);
+            font-weight: 600;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .status-under-construction {
+            background: rgba(243, 156, 18, 0.1);
+            color: var(--warning);
+        }
+
+        .status-completed {
+            background: rgba(45, 122, 79, 0.1);
+            color: var(--success);
+        }
+
+        .expense-summary {
+            background: var(--bg-main);
+            padding: 1.5rem;
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+        }
+
+        .expense-category {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+        }
+
+        .expense-category:last-child {
+            margin-bottom: 0;
+        }
+
+        .category-name {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .category-amount {
+            font-weight: 700;
+            color: var(--secondary);
+        }
+
+        .category-count {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-right: 0.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+            }
+
+            .nav-tabs {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .projects-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .summary-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .modal-content {
+                width: 95%;
+                padding: 1.5rem;
+            }
+        }
+
+        .section-divider {
+            margin: 2rem 0;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--secondary);
+        }
+
+        .section-title {
+            color: var(--primary);
+            font-weight: 700;
+            font-size: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .info-box {
+            background: rgba(52, 152, 219, 0.1);
+            border-left: 4px solid #3498db;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            color: var(--text-primary);
+        }
+
+        .expense-item {
+            background: white;
+            padding: 1rem;
+            border-radius: 10px;
+            margin-bottom: 0.75rem;
+            border: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .expense-item:hover {
+            box-shadow: 0 4px 12px var(--shadow);
+            border-color: var(--primary);
+        }
+
+        .expense-details {
+            flex: 1;
+        }
+
+        .expense-date {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+
+        .expense-category-label {
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 0.25rem;
+        }
+
+        .expense-recipient {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .expense-amount-display {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--secondary);
+            margin-left: 1rem;
+        }
+
+        .expense-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-right: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <div class="logo-icon">🏗️</div>
+                    <span>نظام إدارة المشاريع العقارية</span>
+                </div>
+                <div class="nav-tabs">
+                    <button class="nav-tab active" onclick="showView('dashboard')">📊 لوحة التحكم</button>
+                    <button class="nav-tab" onclick="showView('projects')">🏢 المشاريع</button>
+                    <button class="nav-tab" onclick="showView('sales')">💰 المبيعات</button>
+                    <button class="nav-tab" onclick="showView('reports')">📈 التقارير</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <div class="container">
+            <!-- Dashboard View -->
+            <div id="dashboard-view" class="view active">
+                <div class="summary-grid">
+                    <div class="summary-card">
+                        <div class="summary-label">إجمالي المشاريع</div>
+                        <div class="summary-value" id="total-projects">0</div>
+                    </div>
+                    <div class="summary-card gold">
+                        <div class="summary-label">إجمالي الإيرادات</div>
+                        <div class="summary-value" id="total-revenue">0 <span style="font-size: 1rem;">ج.م</span></div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-label">إجمالي التكاليف</div>
+                        <div class="summary-value" id="total-costs">0 <span style="font-size: 1rem;">ج.م</span></div>
+                    </div>
+                    <div class="summary-card gold">
+                        <div class="summary-label">صافي الربح</div>
+                        <div class="summary-value" id="net-profit">0 <span style="font-size: 1rem;">ج.م</span></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">المشاريع النشطة</h2>
+                    </div>
+                    <div class="projects-grid" id="active-projects-grid"></div>
+                </div>
+            </div>
+
+            <!-- Projects View -->
+            <div id="projects-view" class="view">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">إدارة المشاريع</h2>
+                        <button class="btn btn-primary" onclick="openAddProjectModal()">
+                            ➕ إضافة مشروع جديد
+                        </button>
+                    </div>
+                    <div class="projects-grid" id="projects-grid"></div>
+                </div>
+            </div>
+
+            <!-- Sales View -->
+            <div id="sales-view" class="view">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">المبيعات والعملاء</h2>
+                        <button class="btn btn-primary" onclick="openAddSaleModal()">
+                            ➕ إضافة عملية بيع
+                        </button>
+                    </div>
+                    <div id="sales-list"></div>
+                </div>
+            </div>
+
+            <!-- Reports View -->
+            <div id="reports-view" class="view">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">التقارير والإحصائيات</h2>
+                        <button class="btn btn-secondary" onclick="generateReport()">
+                            🔄 تحديث التقرير
+                        </button>
+                    </div>
+                    <div id="reports-content"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Add Project Modal -->
+    <div id="add-project-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">إضافة مشروع جديد</h3>
+                <button class="close-modal" onclick="closeModal('add-project-modal')">×</button>
+            </div>
+            <form id="add-project-form" onsubmit="addProject(event)">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">اسم المشروع *</label>
+                        <input type="text" class="form-control" name="projectName" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">الموقع</label>
+                        <input type="text" class="form-control" name="location">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">حالة المشروع *</label>
+                        <select class="form-control" name="status" required>
+                            <option value="under_construction">تحت الإنشاء</option>
+                            <option value="completed">جاهز</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="section-divider">
+                    <h4 class="section-title">🏢 الوحدات</h4>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">عدد الشقق *</label>
+                        <input type="number" class="form-control" name="apartmentsCount" required min="0" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">عدد المحلات</label>
+                        <input type="number" class="form-control" name="shopsCount" value="0" min="0">
+                    </div>
+                </div>
+
+                <div class="info-box">
+                    💡 يمكنك إضافة المصروفات بعد إنشاء المشروع من صفحة تفاصيل المشروع
+                </div>
+
+                <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                    <button type="submit" class="btn btn-primary" style="flex: 1;">✅ حفظ المشروع</button>
+                    <button type="button" class="btn btn-danger" onclick="closeModal('add-project-modal')" style="flex: 1;">❌ إلغاء</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Project Details Modal -->
+    <div id="project-details-modal" class="modal">
+        <div class="modal-content" style="max-width: 1200px;">
+            <div class="modal-header">
+                <h3 class="modal-title" id="project-details-title">تفاصيل المشروع</h3>
+                <button class="close-modal" onclick="closeModal('project-details-modal')">×</button>
+            </div>
+            <div id="project-details-content"></div>
+        </div>
+    </div>
+
+    <!-- Add Expense Modal -->
+    <div id="add-expense-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">إضافة مصروف جديد</h3>
+                <button class="close-modal" onclick="closeModal('add-expense-modal')">×</button>
+            </div>
+            <form id="add-expense-form" onsubmit="addExpense(event)">
+                <input type="hidden" name="projectId" id="expense-project-id">
+                
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">التاريخ *</label>
+                        <input type="date" class="form-control" name="date" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">الفئة *</label>
+                        <select class="form-control" name="category" id="expense-category-select" required onchange="toggleCustomCategory()">
+                            <option value="">اختر الفئة</option>
+                            <option value="land">🏗️ أرض</option>
+                            <option value="contractor">👷 مقاول</option>
+                            <option value="engineer">👨‍💼 مهندس</option>
+                            <option value="labor">🔨 صنايعية وعمال</option>
+                            <option value="custom">➕ فئة مخصصة</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group" id="custom-category-group" style="display: none;">
+                    <label class="form-label">اسم الفئة المخصصة *</label>
+                    <input type="text" class="form-control" name="customCategory" placeholder="مثال: رخص، كهرباء، مياه...">
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">المبلغ (ج.م) *</label>
+                        <input type="number" class="form-control" name="amount" required min="0" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">المستلم/الجهة</label>
+                        <input type="text" class="form-control" name="recipient" placeholder="اسم الشخص أو الشركة">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">ملاحظات</label>
+                    <textarea class="form-control" name="notes" rows="3" placeholder="تفاصيل إضافية عن المصروف..."></textarea>
+                </div>
+
+                <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                    <button type="submit" class="btn btn-primary" style="flex: 1;">✅ حفظ المصروف</button>
+                    <button type="button" class="btn btn-danger" onclick="closeModal('add-expense-modal')" style="flex: 1;">❌ إلغاء</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Expense Modal -->
+    <div id="edit-expense-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">تعديل المصروف</h3>
+                <button class="close-modal" onclick="closeModal('edit-expense-modal')">×</button>
+            </div>
+            <form id="edit-expense-form" onsubmit="updateExpense(event)">
+                <input type="hidden" name="projectId" id="edit-expense-project-id">
+                <input type="hidden" name="expenseId" id="edit-expense-id">
+                
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">التاريخ *</label>
+                        <input type="date" class="form-control" name="date" id="edit-expense-date" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">الفئة *</label>
+                        <select class="form-control" name="category" id="edit-expense-category" required onchange="toggleEditCustomCategory()">
+                            <option value="">اختر الفئة</option>
+                            <option value="land">🏗️ أرض</option>
+                            <option value="contractor">👷 مقاول</option>
+                            <option value="engineer">👨‍💼 مهندس</option>
+                            <option value="labor">🔨 صنايعية وعمال</option>
+                            <option value="custom">➕ فئة مخصصة</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group" id="edit-custom-category-group" style="display: none;">
+                    <label class="form-label">اسم الفئة المخصصة *</label>
+                    <input type="text" class="form-control" name="customCategory" id="edit-expense-custom-category">
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">المبلغ (ج.م) *</label>
+                        <input type="number" class="form-control" name="amount" id="edit-expense-amount" required min="0" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">المستلم/الجهة</label>
+                        <input type="text" class="form-control" name="recipient" id="edit-expense-recipient">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">ملاحظات</label>
+                    <textarea class="form-control" name="notes" id="edit-expense-notes" rows="3"></textarea>
+                </div>
+
+                <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                    <button type="submit" class="btn btn-primary" style="flex: 1;">✅ حفظ التعديلات</button>
+                    <button type="button" class="btn btn-danger" onclick="closeModal('edit-expense-modal')" style="flex: 1;">❌ إلغاء</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Sale Modal -->
+    <div id="add-sale-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">إضافة عملية بيع جديدة</h3>
+                <button class="close-modal" onclick="closeModal('add-sale-modal')">×</button>
+            </div>
+            <form id="add-sale-form" onsubmit="addSale(event)">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">المشروع *</label>
+                        <select class="form-control" name="projectId" id="sale-project-select" required onchange="updateUnitTypes()">
+                            <option value="">اختر المشروع</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">نوع الوحدة *</label>
+                        <select class="form-control" name="unitType" required>
+                            <option value="">اختر نوع الوحدة</option>
+                            <option value="apartment">شقة</option>
+                            <option value="shop">محل</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">رقم الوحدة</label>
+                        <input type="text" class="form-control" name="unitNumber">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">تاريخ البيع *</label>
+                        <input type="date" class="form-control" name="saleDate" required>
+                    </div>
+                </div>
+
+                <div class="section-divider">
+                    <h4 class="section-title">👤 بيانات العميل</h4>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">اسم العميل *</label>
+                        <input type="text" class="form-control" name="customerName" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">رقم الهاتف</label>
+                        <input type="tel" class="form-control" name="customerPhone">
+                    </div>
+                </div>
+
+                <div class="section-divider">
+                    <h4 class="section-title">💳 تفاصيل الدفع</h4>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">السعر الإجمالي (ج.م) *</label>
+                        <input type="number" class="form-control" name="totalPrice" required min="0" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">طريقة الدفع *</label>
+                        <select class="form-control" name="paymentType" required onchange="toggleInstallmentFields()">
+                            <option value="">اختر طريقة الدفع</option>
+                            <option value="cash">كاش</option>
+                            <option value="installment">أقساط</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="installment-fields" style="display: none;">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label class="form-label">المقدم (ج.م)</label>
+                            <input type="number" class="form-control" name="downPayment" min="0" step="0.01" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">عدد الأقساط الربع سنوية</label>
+                            <input type="number" class="form-control" name="installmentsCount" min="1" value="4">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label class="form-label">ملاحظات</label>
+                    <textarea class="form-control" name="notes" rows="3"></textarea>
+                </div>
+
+                <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                    <button type="submit" class="btn btn-primary" style="flex: 1;">✅ حفظ العملية</button>
+                    <button type="button" class="btn btn-danger" onclick="closeModal('add-sale-modal')" style="flex: 1;">❌ إلغاء</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Sale Modal -->
+    <div id="edit-sale-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">تعديل عملية البيع</h3>
+                <button class="close-modal" onclick="closeModal('edit-sale-modal')">×</button>
+            </div>
+            <form id="edit-sale-form" onsubmit="updateSale(event)">
+                <input type="hidden" name="saleId" id="edit-sale-id">
+                
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">المشروع *</label>
+                        <select class="form-control" name="projectId" id="edit-sale-project" required disabled>
+                            <option value="">اختر المشروع</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">نوع الوحدة *</label>
+                        <select class="form-control" name="unitType" id="edit-sale-unit-type" required>
+                            <option value="apartment">شقة</option>
+                            <option value="shop">محل</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">رقم الوحدة</label>
+                        <input type="text" class="form-control" name="unitNumber" id="edit-sale-unit-number">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">تاريخ البيع *</label>
+                        <input type="date" class="form-control" name="saleDate" id="edit-sale-date" required>
+                    </div>
+                </div>
+
+                <div class="section-divider">
+                    <h4 class="section-title">👤 بيانات العميل</h4>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">اسم العميل *</label>
+                        <input type="text" class="form-control" name="customerName" id="edit-sale-customer-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">رقم الهاتف</label>
+                        <input type="tel" class="form-control" name="customerPhone" id="edit-sale-customer-phone">
+                    </div>
+                </div>
+
+                <div class="section-divider">
+                    <h4 class="section-title">💳 تفاصيل الدفع</h4>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">السعر الإجمالي (ج.م) *</label>
+                        <input type="number" class="form-control" name="totalPrice" id="edit-sale-total-price" required min="0" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">طريقة الدفع *</label>
+                        <select class="form-control" name="paymentType" id="edit-sale-payment-type" required disabled>
+                            <option value="cash">كاش</option>
+                            <option value="installment">أقساط</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="info-box">
+                    ⚠️ لا يمكن تغيير طريقة الدفع أو جدول الأقساط بعد الحفظ. لتغيير ذلك، احذف العملية وأضفها من جديد.
+                </div>
+
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label class="form-label">ملاحظات</label>
+                    <textarea class="form-control" name="notes" id="edit-sale-notes" rows="3"></textarea>
+                </div>
+
+                <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                    <button type="submit" class="btn btn-primary" style="flex: 1;">✅ حفظ التعديلات</button>
+                    <button type="button" class="btn btn-danger" onclick="closeModal('edit-sale-modal')" style="flex: 1;">❌ إلغاء</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Project Modal -->
+    <div id="edit-project-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">تعديل المشروع</h3>
+                <button class="close-modal" onclick="closeModal('edit-project-modal')">×</button>
+            </div>
+            <form id="edit-project-form" onsubmit="updateProject(event)">
+                <input type="hidden" name="projectId" id="edit-project-id">
+                
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">اسم المشروع *</label>
+                        <input type="text" class="form-control" name="projectName" id="edit-project-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">الموقع</label>
+                        <input type="text" class="form-control" name="location" id="edit-project-location">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">حالة المشروع *</label>
+                        <select class="form-control" name="status" id="edit-project-status" required>
+                            <option value="under_construction">تحت الإنشاء</option>
+                            <option value="completed">جاهز</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="section-divider">
+                    <h4 class="section-title">🏢 الوحدات</h4>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">عدد الشقق *</label>
+                        <input type="number" class="form-control" name="apartmentsCount" id="edit-project-apartments" required min="0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">عدد المحلات</label>
+                        <input type="number" class="form-control" name="shopsCount" id="edit-project-shops" min="0">
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                    <button type="submit" class="btn btn-primary" style="flex: 1;">✅ حفظ التعديلات</button>
+                    <button type="button" class="btn btn-danger" onclick="closeModal('edit-project-modal')" style="flex: 1;">❌ إلغاء</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
