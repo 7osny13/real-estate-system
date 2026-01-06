@@ -4,7 +4,7 @@ const SUPABASE_CONFIG = {
 };
 
 // Initialize Supabase client
-const supabase = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+const supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
 
 // Export for use in app.js
-window.supabaseClient = supabase;
+window.supabaseClient = supabaseClient;
