@@ -1674,56 +1674,59 @@ async function renderCharts(totalPaid, totalCosts) {
 }
 
 // ============================================================
-// PDF EXPORT FUNCTIONS
+// PDF EXPORT — نظام الطباعة (HTML → Print → PDF)
+// يدعم العربي بالكامل عبر المتصفح
 // ============================================================
-function pdfHeader(doc, title, subtitle) {
-  doc.setFillColor(15, 61, 46);
-  doc.rect(0, 0, 210, 28, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(14); doc.setFont('helvetica', 'bold');
-  doc.text(title, 105, 11, { align: 'center' });
-  doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-  doc.text(subtitle, 105, 19, { align: 'center' });
-  doc.setTextColor(0, 0, 0);
-  return 35;
-}
 
-function pdfFooter(doc, pageNum) {
-  const total = doc.getNumberOfPages();
-  doc.setFontSize(8); doc.setTextColor(150, 150, 150);
-  doc.text(`صفحة ${pageNum} من ${total}`, 105, 290, { align: 'center' });
-  doc.text(new Date().toLocaleDateString('ar-EG'), 195, 290, { align: 'right' });
-}
+const PDF_STYLES = `
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@700;900&display=swap');
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:'Cairo',sans-serif; direction:rtl; color:#1c1c1a; background:#fff; padding:20px; font-size:13px; }
+    .pdf-header { background:#0f3d2e; color:#fff; padding:18px 24px; border-radius:8px; margin-bottom:20px; }
+    .pdf-header h1 { font-family:'Tajawal',sans-serif; font-size:20px; font-weight:900; margin-bottom:4px; }
+    .pdf-header p  { font-size:12px; opacity:.85; }
+    .pdf-meta { display:flex; justify-content:space-between; font-size:11px; color:#6b6860; margin-top:6px; }
+    .section-title { font-family:'Tajawal',sans-serif; font-weight:700; font-size:14px; color:#0f3d2e; border-right:4px solid #c9982a; padding-right:10px; margin:18px 0 10px; }
+    .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px 20px; background:#f7f5f0; border-radius:8px; padding:12px 16px; margin-bottom:12px; }
+    .info-row { display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid #e0ddd6; }
+    .info-row:last-child { border:none; }
+    .info-label { font-weight:700; color:#6b6860; font-size:12px; }
+    .info-value { font-weight:600; color:#1c1c1a; }
+    .summary-boxes { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
+    .summary-box { border-radius:8px; padding:12px; text-align:center; }
+    .summary-box.green  { background:#e8f5ee; }
+    .summary-box.gold   { background:#fdf3dc; }
+    .summary-box.red    { background:#fce8e6; }
+    .summary-box .lbl   { font-size:11px; color:#6b6860; font-weight:600; margin-bottom:4px; }
+    .summary-box .val   { font-family:'Tajawal',sans-serif; font-size:18px; font-weight:900; }
+    .summary-box.green .val { color:#1e7e4a; }
+    .summary-box.gold  .val { color:#9a6f10; }
+    .summary-box.red   .val { color:#c0392b; }
+    table { width:100%; border-collapse:collapse; font-size:12px; margin-bottom:16px; }
+    th { background:#0f3d2e; color:#fff; padding:8px 10px; text-align:right; font-weight:700; font-size:11px; }
+    td { padding:7px 10px; border-bottom:1px solid #e0ddd6; }
+    tr:nth-child(even) td { background:#f7f5f0; }
+    tr.overdue td { background:#fce8e6; color:#c0392b; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; }
+    .badge-green { background:#e8f5ee; color:#1e7e4a; }
+    .badge-red   { background:#fce8e6; color:#c0392b; }
+    .badge-gold  { background:#fdf3dc; color:#9a6f10; }
+    .badge-blue  { background:#e8f1fb; color:#1a5276; }
+    .badge-orange{ background:#fef0e7; color:#c0642b; }
+    .footer { margin-top:24px; padding-top:12px; border-top:2px solid #e0ddd6; display:flex; justify-content:space-between; font-size:11px; color:#6b6860; }
+    @media print {
+      body { padding:10px; }
+      @page { margin:15mm; size:A4; }
+    }
+  </style>
+`;
 
-function pdfSectionTitle(doc, text, y) {
-  doc.setFillColor(240, 237, 230);
-  doc.rect(10, y - 5, 190, 10, 'F');
-  doc.setFontSize(10); doc.setFont('helvetica', 'bold');
-  doc.setTextColor(15, 61, 46);
-  doc.text(text, 195, y + 1, { align: 'right' });
-  doc.setTextColor(0, 0, 0);
-  return y + 10;
-}
-
-function pdfRow(doc, cols, y, isHeader = false) {
-  if (isHeader) {
-    doc.setFillColor(15, 61, 46);
-    doc.rect(10, y - 5, 190, 8, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
-  } else {
-    doc.setTextColor(0, 0, 0);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
-  }
-
-  const totalW = 190;
-  const colW = totalW / cols.length;
-  cols.forEach((col, i) => {
-    const x = 200 - (i * colW) - colW / 2;
-    doc.text(String(col), x, y, { align: 'center' });
-  });
-  if (isHeader) doc.setTextColor(0, 0, 0);
-  return y + 7;
+function openPrintWindow(htmlContent, filename) {
+  const win = window.open('', '_blank', 'width=900,height=700');
+  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>${filename}</title>${PDF_STYLES}</head><body>${htmlContent}</body></html>`);
+  win.document.close();
+  win.onload = () => { win.focus(); win.print(); };
 }
 
 // ── 1. كشف حساب عميل ─────────────────────────────────────
@@ -1731,72 +1734,66 @@ async function exportClientPDF(saleId) {
   const sale = sales.find(s => s.id === saleId);
   if (!sale) return;
   const project = projects.find(p => p.id === sale.projectId);
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-
-  let y = pdfHeader(doc, 'Customer Account Statement', `${sale.customerName} - ${project?.projectName || ''}`);
-
-  // بيانات العميل
-  y = pdfSectionTitle(doc, 'Customer Information', y);
-  doc.setFontSize(9);
-  const info = [
-    ['Customer', sale.customerName],
-    ['Phone', sale.customerPhone || '-'],
-    ['Project', project?.projectName || '-'],
-    ['Unit', `${sale.unitType === 'apartment' ? 'Apartment' : 'Shop'} ${sale.unitNumber || ''}`],
-    ['Sale Date', sale.saleDate],
-    ['Total Price', formatCurrency(sale.totalPrice) + ' EGP'],
-    ['Payment Type', sale.paymentType === 'cash' ? 'Cash' : 'Installments'],
-  ];
-  info.forEach(([label, val]) => {
-    doc.setFont('helvetica', 'bold'); doc.text(label + ':', 195, y, { align: 'right' });
-    doc.setFont('helvetica', 'normal'); doc.text(val, 130, y, { align: 'right' });
-    y += 6;
-  });
-  y += 4;
-
-  // ملخص مالي
   const totalPaid = getTotalPaid(sale);
   const remaining = sale.totalPrice - totalPaid;
-  y = pdfSectionTitle(doc, 'Financial Summary', y);
-  doc.setFontSize(9);
-  [
-    ['Total Price', formatCurrency(sale.totalPrice) + ' EGP'],
-    ['Total Paid', formatCurrency(totalPaid) + ' EGP'],
-    ['Remaining', formatCurrency(remaining) + ' EGP'],
-  ].forEach(([label, val]) => {
-    doc.setFont('helvetica', 'bold'); doc.text(label + ':', 195, y, { align: 'right' });
-    doc.setFont('helvetica', 'normal'); doc.text(val, 130, y, { align: 'right' });
-    y += 6;
-  });
-  y += 4;
-
-  // جدول الأقساط
-  y = pdfSectionTitle(doc, 'Installments Schedule', y);
-  y = pdfRow(doc, ['#', 'Label', 'Amount', 'Due Date', 'Paid', 'Remaining', 'Status'], y, true);
-
   const today = new Date(); today.setHours(0,0,0,0);
-  (sale.payments || []).forEach((inst, i) => {
-    if (y > 270) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
-    const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
-    const isOverdue = (inst.status !== 'paid') && due < today;
-    if (i % 2 === 0) { doc.setFillColor(247,245,240); doc.rect(10, y-5, 190, 7, 'F'); }
-    if (isOverdue) { doc.setTextColor(192, 57, 43); }
-    y = pdfRow(doc, [
-      i + 1,
-      inst.label || `Inst. ${i+1}`,
-      formatCurrency(inst.totalAmount),
-      inst.dueDate,
-      formatCurrency(inst.paidAmount || 0),
-      formatCurrency(inst.remainingAmount || 0),
-      inst.status === 'paid' ? 'Paid' : isOverdue ? 'Overdue' : inst.status === 'partial' ? 'Partial' : 'Pending'
-    ], y);
-    doc.setTextColor(0,0,0);
-  });
+  const dateStr = new Date().toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
 
-  pdfFooter(doc, 1);
-  doc.save(`client-statement-${sale.customerName}.pdf`);
-  showToast('تم تصدير كشف حساب العميل');
+  const installmentsRows = (sale.payments || []).map((inst, i) => {
+    const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
+    const isOverdue = inst.status !== 'paid' && due < today;
+    const statusBadge =
+      inst.status === 'paid'    ? '<span class="badge badge-green">مدفوع ✓</span>' :
+      inst.status === 'partial' ? '<span class="badge badge-orange">جزئي</span>'   :
+      isOverdue                 ? '<span class="badge badge-red">متأخر !</span>'   :
+                                  '<span class="badge badge-blue">قادم</span>';
+    return `<tr class="${isOverdue ? 'overdue' : ''}">
+      <td>${i + 1}</td>
+      <td>${inst.label || 'قسط ' + (i+1)}</td>
+      <td>${formatCurrency(inst.totalAmount)} ج.م</td>
+      <td>${formatDate(inst.dueDate)}</td>
+      <td style="color:#1e7e4a;font-weight:700">${formatCurrency(inst.paidAmount || 0)} ج.م</td>
+      <td style="color:#c0392b;font-weight:700">${formatCurrency(inst.remainingAmount || 0)} ج.م</td>
+      <td>${statusBadge}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `
+    <div class="pdf-header">
+      <h1>كشف حساب عميل</h1>
+      <p>${sale.customerName} — ${project?.projectName || ''}</p>
+      <div class="pdf-meta"><span>تاريخ الإصدار: ${dateStr}</span></div>
+    </div>
+
+    <div class="section-title">بيانات العميل والوحدة</div>
+    <div class="info-grid">
+      <div class="info-row"><span class="info-label">اسم العميل</span><span class="info-value">${sale.customerName}</span></div>
+      <div class="info-row"><span class="info-label">رقم الهاتف</span><span class="info-value">${sale.customerPhone || '—'}</span></div>
+      <div class="info-row"><span class="info-label">المشروع</span><span class="info-value">${project?.projectName || '—'}</span></div>
+      <div class="info-row"><span class="info-label">نوع الوحدة</span><span class="info-value">${sale.unitType === 'apartment' ? 'شقة' : 'محل'} ${sale.unitNumber || ''}</span></div>
+      <div class="info-row"><span class="info-label">تاريخ البيع</span><span class="info-value">${formatDate(sale.saleDate)}</span></div>
+      <div class="info-row"><span class="info-label">طريقة الدفع</span><span class="info-value">${sale.paymentType === 'cash' ? 'كاش' : 'أقساط'}</span></div>
+    </div>
+
+    <div class="summary-boxes">
+      <div class="summary-box gold"><div class="lbl">إجمالي السعر</div><div class="val">${formatCurrency(sale.totalPrice)}</div><div class="lbl">ج.م</div></div>
+      <div class="summary-box green"><div class="lbl">إجمالي المدفوع</div><div class="val">${formatCurrency(totalPaid)}</div><div class="lbl">ج.م</div></div>
+      <div class="summary-box ${remaining > 0 ? 'red' : 'green'}"><div class="lbl">المتبقي</div><div class="val">${formatCurrency(remaining)}</div><div class="lbl">ج.م</div></div>
+    </div>
+
+    <div class="section-title">جدول الأقساط (${(sale.payments || []).length} قسط)</div>
+    <table>
+      <thead><tr><th>#</th><th>البند</th><th>المبلغ</th><th>تاريخ الاستحقاق</th><th>المدفوع</th><th>المتبقي</th><th>الحالة</th></tr></thead>
+      <tbody>${installmentsRows}</tbody>
+    </table>
+
+    <div class="footer">
+      <span>نظام إدارة المشاريع العقارية</span>
+      <span>${dateStr}</span>
+    </div>`;
+
+  openPrintWindow(html, `كشف-حساب-${sale.customerName}`);
+  showToast('جاري فتح نافذة الطباعة...', 'info');
 }
 
 // ── 2. تقرير مشروع كامل ──────────────────────────────────
@@ -1808,89 +1805,75 @@ async function exportProjectPDF(projectId) {
   const totalCosts = expenses.reduce((s, e) => s + e.amount, 0);
   const totalPaid = projectSales.reduce((s, sale) => s + getTotalPaid(sale), 0);
   const totalExpected = projectSales.reduce((s, sale) => s + sale.totalPrice, 0);
+  const dateStr = new Date().toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
 
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const expRows = expenses.map((e, i) => `
+    <tr>
+      <td>${i+1}</td>
+      <td>${getCategoryName(e.category, e.customCategory)}</td>
+      <td>${formatDate(e.date)}</td>
+      <td>${e.recipient || '—'}</td>
+      <td style="font-weight:700;color:#c9982a">${formatCurrency(e.amount)} ج.م</td>
+      <td>${e.notes || '—'}</td>
+    </tr>`).join('');
 
-  let y = pdfHeader(doc, 'Project Report', project.projectName);
-
-  // ملخص
-  y = pdfSectionTitle(doc, 'Project Summary', y);
-  doc.setFontSize(9);
-  [
-    ['Project', project.projectName],
-    ['Location', project.location || '-'],
-    ['Status', project.status === 'under_construction' ? 'Under Construction' : 'Completed'],
-    ['Apartments', project.apartmentsCount],
-    ['Shops', project.shopsCount],
-    ['Total Costs', formatCurrency(totalCosts) + ' EGP'],
-    ['Revenue Collected', formatCurrency(totalPaid) + ' EGP'],
-    ['Expected Revenue', formatCurrency(totalExpected) + ' EGP'],
-    ['Net Profit', formatCurrency(totalPaid - totalCosts) + ' EGP'],
-  ].forEach(([label, val]) => {
-    doc.setFont('helvetica', 'bold'); doc.text(label + ':', 195, y, { align: 'right' });
-    doc.setFont('helvetica', 'normal'); doc.text(String(val), 130, y, { align: 'right' });
-    y += 6;
-  });
-  y += 4;
-
-  // مصروفات
-  y = pdfSectionTitle(doc, 'Expenses', y);
-  y = pdfRow(doc, ['#', 'Date', 'Category', 'Recipient', 'Amount'], y, true);
-  expenses.forEach((e, i) => {
-    if (y > 270) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
-    if (i % 2 === 0) { doc.setFillColor(247,245,240); doc.rect(10, y-5, 190, 7, 'F'); }
-    y = pdfRow(doc, [i+1, e.date, getCategoryName(e.category, e.customCategory).replace(/[^\x00-\x7F]/g,''), e.recipient || '-', formatCurrency(e.amount)], y);
-  });
-  y += 4;
-
-  // مبيعات
-  if (y > 240) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
-  y = pdfSectionTitle(doc, 'Sales', y);
-  y = pdfRow(doc, ['#', 'Customer', 'Unit', 'Price', 'Paid', 'Remaining'], y, true);
-  projectSales.forEach((sale, i) => {
-    if (y > 270) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
-    if (i % 2 === 0) { doc.setFillColor(247,245,240); doc.rect(10, y-5, 190, 7, 'F'); }
+  const saleRows = projectSales.map((sale, i) => {
     const paid = getTotalPaid(sale);
-    y = pdfRow(doc, [i+1, sale.customerName, `${sale.unitType === 'apartment' ? 'Apt' : 'Shop'} ${sale.unitNumber||''}`, formatCurrency(sale.totalPrice), formatCurrency(paid), formatCurrency(sale.totalPrice - paid)], y);
-  });
+    const rem = sale.totalPrice - paid;
+    return `<tr>
+      <td>${i+1}</td>
+      <td style="font-weight:700">${sale.customerName}</td>
+      <td>${sale.customerPhone || '—'}</td>
+      <td>${sale.unitType === 'apartment' ? 'شقة' : 'محل'} ${sale.unitNumber || ''}</td>
+      <td>${formatDate(sale.saleDate)}</td>
+      <td style="font-weight:700;color:#c9982a">${formatCurrency(sale.totalPrice)} ج.م</td>
+      <td style="color:#1e7e4a;font-weight:700">${formatCurrency(paid)} ج.م</td>
+      <td style="color:${rem > 0 ? '#c0392b' : '#1e7e4a'};font-weight:700">${formatCurrency(rem)} ج.م</td>
+    </tr>`;}).join('');
 
-  pdfFooter(doc, doc.getCurrentPageInfo().pageNumber);
-  doc.save(`project-report-${project.projectName}.pdf`);
-  showToast('تم تصدير تقرير المشروع');
+  const html = `
+    <div class="pdf-header">
+      <h1>تقرير مشروع — ${project.projectName}</h1>
+      <p>${project.location || ''} &nbsp;|&nbsp; ${project.status === 'under_construction' ? 'تحت الإنشاء' : 'جاهز'}</p>
+      <div class="pdf-meta"><span>تاريخ الإصدار: ${dateStr}</span></div>
+    </div>
+
+    <div class="summary-boxes">
+      <div class="summary-box red"><div class="lbl">إجمالي التكاليف</div><div class="val">${formatCurrency(totalCosts)}</div><div class="lbl">ج.م</div></div>
+      <div class="summary-box green"><div class="lbl">إيرادات محصلة</div><div class="val">${formatCurrency(totalPaid)}</div><div class="lbl">ج.م</div></div>
+      <div class="summary-box gold"><div class="lbl">صافي الربح</div><div class="val">${formatCurrency(totalPaid - totalCosts)}</div><div class="lbl">ج.م</div></div>
+    </div>
+
+    <div class="section-title">💸 المصروفات (${expenses.length} بند — إجمالي: ${formatCurrency(totalCosts)} ج.م)</div>
+    <table>
+      <thead><tr><th>#</th><th>الفئة</th><th>التاريخ</th><th>المستلم</th><th>المبلغ</th><th>ملاحظات</th></tr></thead>
+      <tbody>${expRows || '<tr><td colspan="6" style="text-align:center;color:#6b6860">لا توجد مصروفات</td></tr>'}</tbody>
+    </table>
+
+    <div class="section-title">💰 المبيعات (${projectSales.length} عميل — متوقع: ${formatCurrency(totalExpected)} ج.م)</div>
+    <table>
+      <thead><tr><th>#</th><th>العميل</th><th>الهاتف</th><th>الوحدة</th><th>تاريخ البيع</th><th>السعر</th><th>المدفوع</th><th>المتبقي</th></tr></thead>
+      <tbody>${saleRows || '<tr><td colspan="8" style="text-align:center;color:#6b6860">لا توجد مبيعات</td></tr>'}</tbody>
+    </table>
+
+    <div class="footer">
+      <span>نظام إدارة المشاريع العقارية</span>
+      <span>${dateStr}</span>
+    </div>`;
+
+  openPrintWindow(html, `تقرير-${project.projectName}`);
+  showToast('جاري فتح نافذة الطباعة...', 'info');
 }
 
 // ── 3. تقرير شهري عام ────────────────────────────────────
 async function exportMonthlyPDF() {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const now = new Date();
-  const monthName = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const dateStr = new Date().toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
+  const monthStr = new Date().toLocaleDateString('ar-EG', { year:'numeric', month:'long' });
 
-  let y = pdfHeader(doc, 'Monthly Report', monthName);
-
-  // إجمالي
   let totalCosts = 0;
   for (const p of projects) totalCosts += await calculateProjectCosts(p.id);
   const totalPaid = sales.reduce((s, sale) => s + getTotalPaid(sale), 0);
   const totalExpected = sales.reduce((s, sale) => s + sale.totalPrice, 0);
-
-  y = pdfSectionTitle(doc, 'Overall Summary', y);
-  doc.setFontSize(9);
-  [
-    ['Total Projects', projects.length],
-    ['Total Sales Contracts', sales.length],
-    ['Revenue Collected', formatCurrency(totalPaid) + ' EGP'],
-    ['Expected Revenue', formatCurrency(totalExpected) + ' EGP'],
-    ['Remaining to Collect', formatCurrency(totalExpected - totalPaid) + ' EGP'],
-    ['Total Expenses', formatCurrency(totalCosts) + ' EGP'],
-    ['Net Profit', formatCurrency(totalPaid - totalCosts) + ' EGP'],
-  ].forEach(([label, val]) => {
-    doc.setFont('helvetica', 'bold'); doc.text(label + ':', 195, y, { align: 'right' });
-    doc.setFont('helvetica', 'normal'); doc.text(String(val), 130, y, { align: 'right' });
-    y += 6;
-  });
-  y += 4;
 
   // الأقساط المتأخرة
   const today = new Date(); today.setHours(0,0,0,0);
@@ -1905,36 +1888,76 @@ async function exportMonthlyPDF() {
     });
   }
 
-  if (overdue.length > 0) {
-    if (y > 220) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
-    y = pdfSectionTitle(doc, `Overdue Installments (${overdue.length})`, y);
-    y = pdfRow(doc, ['Customer', 'Project', 'Label', 'Due Date', 'Remaining'], y, true);
-    overdue.forEach((item, i) => {
-      if (y > 270) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
-      if (i % 2 === 0) { doc.setFillColor(252,232,230); doc.rect(10, y-5, 190, 7, 'F'); }
-      doc.setTextColor(192, 57, 43);
-      y = pdfRow(doc, [item.sale.customerName, item.proj?.projectName || '-', item.inst.label || '-', item.inst.dueDate, formatCurrency(item.inst.remainingAmount || item.inst.totalAmount)], y);
-      doc.setTextColor(0,0,0);
-    });
-    y += 4;
-  }
+  const overdueRows = overdue.map((item, i) => `
+    <tr class="overdue">
+      <td>${i+1}</td>
+      <td style="font-weight:700">${item.sale.customerName}</td>
+      <td>${item.proj?.projectName || '—'}</td>
+      <td>${item.inst.label || '—'}</td>
+      <td>${formatDate(item.inst.dueDate)}</td>
+      <td style="font-weight:700">${formatCurrency(item.inst.remainingAmount || item.inst.totalAmount)} ج.م</td>
+      <td>${Math.floor((today - new Date(item.inst.dueDate)) / 86400000)} يوم</td>
+    </tr>`).join('');
 
-  // ملخص المشاريع
-  if (y > 220) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
-  y = pdfSectionTitle(doc, 'Projects Summary', y);
-  y = pdfRow(doc, ['Project', 'Status', 'Costs', 'Collected', 'Expected', 'Profit'], y, true);
-  for (const p of projects) {
-    if (y > 270) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
+  const projRows = await Promise.all(projects.map(async (p, i) => {
     const costs = await calculateProjectCosts(p.id);
     const rev = calculateProjectRevenue(p.id);
     const exp = sales.filter(s => s.projectId === p.id).reduce((s, sale) => s + sale.totalPrice, 0);
-    if ((projects.indexOf(p)) % 2 === 0) { doc.setFillColor(247,245,240); doc.rect(10, y-5, 190, 7, 'F'); }
-    y = pdfRow(doc, [p.projectName.slice(0,16), p.status === 'under_construction' ? 'Active' : 'Done', formatCurrency(costs), formatCurrency(rev), formatCurrency(exp), formatCurrency(rev-costs)], y);
-  }
+    const profit = rev - costs;
+    return `<tr>
+      <td>${i+1}</td>
+      <td style="font-weight:700">${p.projectName}</td>
+      <td>${p.location || '—'}</td>
+      <td><span class="badge ${p.status === 'under_construction' ? 'badge-orange' : 'badge-green'}">${p.status === 'under_construction' ? 'نشط' : 'جاهز'}</span></td>
+      <td>${sales.filter(s => s.projectId === p.id).length}</td>
+      <td style="color:#c0392b;font-weight:700">${formatCurrency(costs)} ج.م</td>
+      <td style="color:#1e7e4a;font-weight:700">${formatCurrency(rev)} ج.م</td>
+      <td style="color:#c9982a;font-weight:700">${formatCurrency(exp)} ج.م</td>
+      <td style="font-weight:700;color:${profit >= 0 ? '#1e7e4a' : '#c0392b'}">${formatCurrency(profit)} ج.م</td>
+    </tr>`;
+  }));
 
-  pdfFooter(doc, doc.getCurrentPageInfo().pageNumber);
-  doc.save(`monthly-report-${now.getFullYear()}-${now.getMonth()+1}.pdf`);
-  showToast('تم تصدير التقرير الشهري');
+  const html = `
+    <div class="pdf-header">
+      <h1>التقرير الشهري العام</h1>
+      <p>${monthStr}</p>
+      <div class="pdf-meta"><span>تاريخ الإصدار: ${dateStr}</span></div>
+    </div>
+
+    <div class="summary-boxes">
+      <div class="summary-box gold"><div class="lbl">إيرادات محصلة</div><div class="val">${formatCurrency(totalPaid)}</div><div class="lbl">ج.م</div></div>
+      <div class="summary-box red"><div class="lbl">إجمالي التكاليف</div><div class="val">${formatCurrency(totalCosts)}</div><div class="lbl">ج.م</div></div>
+      <div class="summary-box green"><div class="lbl">صافي الربح</div><div class="val">${formatCurrency(totalPaid - totalCosts)}</div><div class="lbl">ج.م</div></div>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-row"><span class="info-label">إجمالي المشاريع</span><span class="info-value">${projects.length}</span></div>
+      <div class="info-row"><span class="info-label">إجمالي عقود البيع</span><span class="info-value">${sales.length}</span></div>
+      <div class="info-row"><span class="info-label">إجمالي المبيعات المتوقعة</span><span class="info-value">${formatCurrency(totalExpected)} ج.م</span></div>
+      <div class="info-row"><span class="info-label">المتبقي تحصيله</span><span class="info-value" style="color:#c0392b">${formatCurrency(totalExpected - totalPaid)} ج.م</span></div>
+      <div class="info-row"><span class="info-label">أقساط متأخرة</span><span class="info-value" style="color:#c0392b">${overdue.length} قسط</span></div>
+    </div>
+
+    ${overdue.length > 0 ? `
+    <div class="section-title">🔴 الأقساط المتأخرة (${overdue.length})</div>
+    <table>
+      <thead><tr><th>#</th><th>العميل</th><th>المشروع</th><th>القسط</th><th>تاريخ الاستحقاق</th><th>المتبقي</th><th>أيام التأخير</th></tr></thead>
+      <tbody>${overdueRows}</tbody>
+    </table>` : `<div style="background:#e8f5ee;border-radius:8px;padding:12px;text-align:center;color:#1e7e4a;font-weight:700;margin-bottom:16px">✅ لا توجد أقساط متأخرة</div>`}
+
+    <div class="section-title">📊 ملخص المشاريع</div>
+    <table>
+      <thead><tr><th>#</th><th>المشروع</th><th>الموقع</th><th>الحالة</th><th>المبيعات</th><th>التكاليف</th><th>محصل</th><th>متوقع</th><th>الربح</th></tr></thead>
+      <tbody>${projRows.join('')}</tbody>
+    </table>
+
+    <div class="footer">
+      <span>نظام إدارة المشاريع العقارية</span>
+      <span>${dateStr}</span>
+    </div>`;
+
+  openPrintWindow(html, `التقرير-الشهري-${monthStr}`);
+  showToast('جاري فتح نافذة الطباعة...', 'info');
 }
 
 // ============================================================
