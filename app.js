@@ -357,6 +357,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.querySelectorAll('input[type="date"]').forEach(el => { if (!el.value) el.value = today; });
 
   await loadData();
+
+  // Migration: حول البيانات القديمة تلقائياً (مرة واحدة بس)
+  await migrateOldPayments();
+
   hideLoading();
 
   updateDashboard();
@@ -372,6 +376,82 @@ async function loadData() {
   } catch (err) {
     console.error(err);
     showToast('خطأ في تحميل البيانات', 'error');
+  }
+}
+
+// ============================================================
+// MIGRATION: تحويل البيانات القديمة للصيغة الجديدة
+// تشتغل مرة واحدة بس — تتحقق من كل sale هل payments قديمة أم لا
+// ============================================================
+function isOldPaymentFormat(payments) {
+  if (!payments || payments.length === 0) return false;
+  const first = payments[0];
+  // الصيغة القديمة: فيها amount و paid مش totalAmount و status
+  return (
+    first.amount !== undefined &&
+    first.paid !== undefined &&
+    first.totalAmount === undefined
+  );
+}
+
+function convertOldPayments(sale) {
+  // حول كل payment قديم للصيغة الجديدة
+  return (sale.payments || []).map((p, i) => {
+    const total = parseFloat(p.amount) || 0;
+    const wasPaid = p.paid === true;
+    const paidDate = p.paidDate || p.dueDate || sale.saleDate;
+
+    return {
+      id: crypto.randomUUID(),
+      label: p.type || `القسط ${i + 1}`,
+      totalAmount: total,
+      paidAmount: wasPaid ? total : 0,
+      remainingAmount: wasPaid ? 0 : total,
+      dueDate: p.dueDate ? p.dueDate.split('T')[0] : sale.saleDate,
+      status: wasPaid ? 'paid' : 'pending',
+      partialPayments: wasPaid
+        ? [{ id: crypto.randomUUID(), amount: total, date: paidDate.split('T')[0], note: 'مدفوع (بيانات قديمة)' }]
+        : []
+    };
+  });
+}
+
+async function migrateOldPayments() {
+  // اجلب كل sales مباشرة من Supabase عشان نشوف raw payments
+  const { data, error } = await DB.supabase.from('sales').select('id, payments, payment_type, sale_date, down_payment');
+  if (error) { console.error('Migration fetch error:', error); return; }
+
+  let migratedCount = 0;
+
+  for (const row of data) {
+    if (!isOldPaymentFormat(row.payments)) continue;
+
+    // حول
+    const newPayments = convertOldPayments({
+      payments: row.payments,
+      saleDate: row.sale_date,
+      downPayment: row.down_payment,
+      paymentType: row.payment_type
+    });
+
+    // حفظ في Supabase
+    const { error: updateErr } = await DB.supabase
+      .from('sales')
+      .update({ payments: newPayments, updated_at: new Date().toISOString() })
+      .eq('id', row.id);
+
+    if (!updateErr) {
+      migratedCount++;
+    } else {
+      console.error(`Migration failed for sale ${row.id}:`, updateErr);
+    }
+  }
+
+  if (migratedCount > 0) {
+    console.log(`✅ Migration: تم تحويل ${migratedCount} عملية بيع للصيغة الجديدة`);
+    showToast(`تم تحديث ${migratedCount} عملية بيع قديمة تلقائياً`, 'info', 5000);
+    // أعد تحميل البيانات بعد Migration
+    await loadData();
   }
 }
 
