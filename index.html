@@ -564,6 +564,31 @@ body {
   </div>
 </div>
 
+<!-- ══════════ SALE FILES MODAL ══════════ -->
+<div id="sale-files-modal" class="modal">
+  <div class="modal-content" style="max-width:700px">
+    <div class="modal-header">
+      <h3 class="modal-title" id="sale-files-modal-title">📎 ملفات العقد</h3>
+      <button class="close-modal" onclick="closeModal('sale-files-modal')">×</button>
+    </div>
+    <input type="hidden" id="sale-files-sale-id">
+
+    <!-- زر الرفع -->
+    <div style="margin-bottom:1.5rem">
+      <label class="btn btn-primary" style="cursor:pointer;display:inline-flex">
+        📤 رفع ملف جديد (صورة أو PDF)
+        <input type="file" accept="image/*,.pdf" style="display:none" onchange="uploadSaleFile(this)">
+      </label>
+      <div style="font-size:0.85rem;color:var(--text-secondary);margin-top:0.5rem">
+        الأنواع المدعومة: JPG, PNG, PDF — الحجم الأقصى: 10MB
+      </div>
+    </div>
+
+    <!-- قائمة الملفات -->
+    <div id="sale-files-list"></div>
+  </div>
+</div>
+
 <script src="app.js"></script>
 </body>
 </html>
