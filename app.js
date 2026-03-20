@@ -646,29 +646,37 @@ function showView(viewName, triggerEl) {
 // ============================================================
 // DASHBOARD
 // ============================================================
+let chartProjects = null;
+let chartInstallments = null;
+
 async function updateDashboard() {
   document.getElementById('total-projects').textContent = projects.length;
 
-  let totalRevenue = 0, totalCosts = 0;
-  for (const p of projects) {
-    totalRevenue += calculateProjectRevenue(p.id);
-    totalCosts += await calculateProjectCosts(p.id);
-  }
-  const netProfit = totalRevenue - totalCosts;
+  let totalPaid = 0, totalCosts = 0, totalExpected = 0;
+  for (const p of projects) totalCosts += await calculateProjectCosts(p.id);
+  totalPaid = sales.reduce((s, sale) => s + getTotalPaid(sale), 0);
+  totalExpected = sales.reduce((s, sale) => s + sale.totalPrice, 0);
+  const totalRemaining = totalExpected - totalPaid;
+  const netProfit = totalPaid - totalCosts;
 
-  document.getElementById('total-revenue').innerHTML = `${formatCurrency(totalRevenue)} <span style="font-size:1rem">ج.م</span>`;
-  document.getElementById('total-costs').innerHTML = `${formatCurrency(totalCosts)} <span style="font-size:1rem">ج.م</span>`;
-  document.getElementById('net-profit').innerHTML = `${formatCurrency(netProfit)} <span style="font-size:1rem">ج.م</span>`;
+  const fmt = v => formatCurrency(v);
+  document.getElementById('total-revenue').textContent  = fmt(totalPaid);
+  document.getElementById('total-costs').textContent    = fmt(totalCosts);
+  document.getElementById('net-profit').textContent     = fmt(netProfit);
+  document.getElementById('total-expected').textContent = fmt(totalExpected);
+  document.getElementById('total-remaining').textContent= fmt(totalRemaining);
 
   // Active projects grid
   const grid = document.getElementById('active-projects-grid');
-  if (!grid) return;
-  const active = projects.filter(p => p.status === 'under_construction');
-  if (active.length === 0) {
-    grid.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🏗️</div><p class="empty-state-text">لا توجد مشاريع نشطة حالياً</p></div>`;
-    return;
+  if (grid) {
+    const active = projects.filter(p => p.status === 'under_construction');
+    grid.innerHTML = active.length === 0
+      ? `<div class="empty"><div class="empty-icon">🏗️</div><p>لا توجد مشاريع نشطة</p></div>`
+      : active.map(p => renderProjectCard(p)).join('');
   }
-  grid.innerHTML = active.map(p => renderProjectCard(p)).join('');
+
+  // Charts
+  renderCharts(totalPaid, totalCosts);
 }
 
 // ============================================================
@@ -724,25 +732,28 @@ function renderProjects() {
 
 function renderProjectCard(p) {
   const projectSales = sales.filter(s => s.projectId === p.id);
-  const totalSales = projectSales.length;
   const revenue = calculateProjectRevenue(p.id);
   const statusLabel = p.status === 'under_construction' ? '🔨 تحت الإنشاء' : '✅ جاهز';
-  const statusClass = p.status === 'under_construction' ? 'status-under-construction' : 'status-completed';
+  const statusClass = p.status === 'under_construction' ? 'status-construction' : 'status-done';
 
   return `
-    <div class="project-card" onclick="showProjectDetails('${p.id}')">
-      <div class="project-name">${p.projectName}</div>
-      ${p.location ? `<div style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:0.5rem">📍 ${p.location}</div>` : ''}
-      <span class="status-badge ${statusClass}">${statusLabel}</span>
-      <div class="project-stats">
-        <div class="stat"><div class="stat-value">${p.apartmentsCount}</div><div class="stat-label">شقة</div></div>
-        <div class="stat"><div class="stat-value">${p.shopsCount}</div><div class="stat-label">محل</div></div>
-        <div class="stat"><div class="stat-value">${totalSales}</div><div class="stat-label">وحدة مباعة</div></div>
-        <div class="stat"><div class="stat-value" style="font-size:1rem">${formatCurrency(revenue)}</div><div class="stat-label">إيرادات</div></div>
-      </div>
-      <div class="action-buttons" style="margin-top:1rem" onclick="event.stopPropagation()">
-        <button class="btn btn-secondary btn-sm" onclick="openEditProjectModal('${p.id}')">✏️ تعديل</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteProject('${p.id}')">🗑️ حذف</button>
+    <div class="proj-card" onclick="showProjectDetails('${p.id}')">
+      <div class="proj-bar"></div>
+      <div class="proj-body">
+        <div class="proj-name">${p.projectName}</div>
+        ${p.location ? `<div class="proj-loc">📍 ${p.location}</div>` : ''}
+        <span class="status-pill ${statusClass}">${statusLabel}</span>
+        <div class="proj-stats-grid">
+          <div class="proj-stat"><div class="proj-stat-val">${p.apartmentsCount}</div><div class="proj-stat-lbl">شقة</div></div>
+          <div class="proj-stat"><div class="proj-stat-val">${p.shopsCount}</div><div class="proj-stat-lbl">محل</div></div>
+          <div class="proj-stat"><div class="proj-stat-val">${projectSales.length}</div><div class="proj-stat-lbl">مبيعات</div></div>
+        </div>
+        <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:.75rem">إيرادات: <strong style="color:var(--gold)">${formatCurrency(revenue)} ج.م</strong></div>
+        <div class="proj-actions" onclick="event.stopPropagation()">
+          <button class="btn btn-gold btn-xs" onclick="openEditProjectModal('${p.id}')">✏️ تعديل</button>
+          <button class="btn btn-pdf btn-xs" onclick="exportProjectPDF('${p.id}')">📄 PDF</button>
+          <button class="btn btn-danger btn-xs" onclick="deleteProject('${p.id}')">🗑️</button>
+        </div>
       </div>
     </div>`;
 }
@@ -773,30 +784,31 @@ function renderSales() {
     });
 
     return `
-      <div class="sale-card ${hasOverdue ? 'sale-overdue' : ''}" style="background:white;border-radius:16px;padding:1.5rem;margin-bottom:1rem;border:2px solid ${hasOverdue ? 'var(--danger)' : 'var(--border)'};transition:all 0.3s">
+      <div class="sale-card ${hasOverdue ? 'overdue' : ''}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem">
           <div>
-            <div style="font-size:1.25rem;font-weight:700;color:var(--primary)">${sale.customerName}</div>
-            <div style="color:var(--text-secondary);font-size:0.9rem">${sale.customerPhone || ''}</div>
-            <div style="margin-top:0.5rem">
-              <span class="badge badge-info">${project?.projectName || 'غير معروف'}</span>
-              <span class="badge badge-success" style="margin-right:0.5rem">${sale.unitType === 'apartment' ? '🏠 شقة' : '🏪 محل'} ${sale.unitNumber || ''}</span>
-              ${hasOverdue ? '<span class="badge badge-danger" style="margin-right:0.5rem">⚠️ قسط متأخر</span>' : ''}
+            <div class="sale-customer">${sale.customerName}</div>
+            <div class="sale-meta">${sale.customerPhone || ''}</div>
+            <div style="margin-top:.5rem;display:flex;gap:.4rem;flex-wrap:wrap">
+              <span class="badge badge-blue">${project?.projectName || 'غير معروف'}</span>
+              <span class="badge badge-green">${sale.unitType === 'apartment' ? '🏠 شقة' : '🏪 محل'} ${sale.unitNumber || ''}</span>
+              ${hasOverdue ? '<span class="badge badge-red">⚠️ قسط متأخر</span>' : ''}
             </div>
           </div>
           <div style="text-align:left">
-            <div style="font-size:1.5rem;font-weight:700;color:var(--secondary)">${formatCurrency(sale.totalPrice)} <small>ج.م</small></div>
-            <div style="font-size:0.85rem;color:var(--text-secondary)">تاريخ البيع: ${formatDate(sale.saleDate)}</div>
-            <div style="font-size:0.9rem;color:${remaining > 0 ? 'var(--danger)' : 'var(--success)'}">
+            <div class="sale-price">${formatCurrency(sale.totalPrice)} <small style="font-size:.8rem">ج.م</small></div>
+            <div style="font-size:.82rem;color:var(--text-muted)">تاريخ البيع: ${formatDate(sale.saleDate)}</div>
+            <div style="font-size:.88rem;font-weight:600;color:${remaining > 0 ? 'var(--danger)' : 'var(--success)'}">
               ${remaining > 0 ? `متبقي: ${formatCurrency(remaining)} ج.م` : '✅ مسدد بالكامل'}
             </div>
           </div>
         </div>
-        <div class="action-buttons" style="margin-top:1rem">
+        <div style="display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap">
           <button class="btn btn-primary btn-sm" onclick="showSaleInstallments('${sale.id}')">📋 الأقساط (${sale.payments?.length || 0})</button>
-          <button class="btn btn-warning btn-sm" onclick="openSaleFilesModal('${sale.id}')">📎 الملفات (${(sale.files||[]).length})</button>
-          <button class="btn btn-secondary btn-sm" onclick="openEditSaleModal('${sale.id}')">✏️ تعديل</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteSale('${sale.id}')">🗑️ حذف</button>
+          <button class="btn btn-warning btn-sm" onclick="openSaleFilesModal('${sale.id}')">📎 ملفات (${(sale.files||[]).length})</button>
+          <button class="btn btn-pdf btn-sm" onclick="exportClientPDF('${sale.id}')">📄 كشف حساب</button>
+          <button class="btn btn-ghost btn-sm" onclick="openEditSaleModal('${sale.id}')">✏️ تعديل</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteSale('${sale.id}')">🗑️</button>
         </div>
       </div>`;
   }).join('');
@@ -1598,7 +1610,332 @@ function getCategoryName(category, customCategory) {
   return category === 'custom' ? '📋 ' + customCategory : (cats[category] || category);
 }
 
-function closeModal(id) {
+// ============================================================
+// CHARTS
+// ============================================================
+async function renderCharts(totalPaid, totalCosts) {
+  // Chart 1: إيرادات vs تكاليف لكل مشروع
+  const labels = [], revenueData = [], costsData = [];
+  for (const p of projects.slice(0, 6)) {
+    labels.push(p.projectName.length > 12 ? p.projectName.slice(0, 12) + '…' : p.projectName);
+    revenueData.push(calculateProjectRevenue(p.id));
+    costsData.push(await calculateProjectCosts(p.id));
+  }
+
+  const ctx1 = document.getElementById('chart-projects');
+  if (ctx1) {
+    if (chartProjects) chartProjects.destroy();
+    chartProjects = new Chart(ctx1, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'إيرادات', data: revenueData, backgroundColor: 'rgba(201,152,42,0.8)', borderRadius: 6 },
+          { label: 'تكاليف', data: costsData, backgroundColor: 'rgba(15,61,46,0.6)', borderRadius: 6 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { font: { family: 'Cairo', size: 11 }, boxWidth: 14 } } },
+        scales: { x: { ticks: { font: { family: 'Cairo', size: 10 } } }, y: { ticks: { font: { family: 'Cairo', size: 10 }, callback: v => (v/1000) + 'k' } } }
+      }
+    });
+  }
+
+  // Chart 2: حالة الأقساط
+  let paid = 0, partial = 0, pending = 0, overdue = 0;
+  const today = new Date(); today.setHours(0,0,0,0);
+  for (const sale of sales) {
+    for (const inst of (sale.payments || [])) {
+      if (inst.status === 'paid') paid++;
+      else if (inst.status === 'partial') partial++;
+      else {
+        const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
+        if (due < today) overdue++; else pending++;
+      }
+    }
+  }
+
+  const ctx2 = document.getElementById('chart-installments');
+  if (ctx2) {
+    if (chartInstallments) chartInstallments.destroy();
+    chartInstallments = new Chart(ctx2, {
+      type: 'doughnut',
+      data: {
+        labels: ['مدفوع', 'جزئي', 'قادم', 'متأخر'],
+        datasets: [{ data: [paid, partial, pending, overdue], backgroundColor: ['#1e7e4a','#e67e22','#2471a3','#c0392b'], borderWidth: 2 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { font: { family: 'Cairo', size: 11 }, boxWidth: 14 } } }
+      }
+    });
+  }
+}
+
+// ============================================================
+// PDF EXPORT FUNCTIONS
+// ============================================================
+function pdfHeader(doc, title, subtitle) {
+  doc.setFillColor(15, 61, 46);
+  doc.rect(0, 0, 210, 28, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+  doc.text(title, 105, 11, { align: 'center' });
+  doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+  doc.text(subtitle, 105, 19, { align: 'center' });
+  doc.setTextColor(0, 0, 0);
+  return 35;
+}
+
+function pdfFooter(doc, pageNum) {
+  const total = doc.getNumberOfPages();
+  doc.setFontSize(8); doc.setTextColor(150, 150, 150);
+  doc.text(`صفحة ${pageNum} من ${total}`, 105, 290, { align: 'center' });
+  doc.text(new Date().toLocaleDateString('ar-EG'), 195, 290, { align: 'right' });
+}
+
+function pdfSectionTitle(doc, text, y) {
+  doc.setFillColor(240, 237, 230);
+  doc.rect(10, y - 5, 190, 10, 'F');
+  doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 61, 46);
+  doc.text(text, 195, y + 1, { align: 'right' });
+  doc.setTextColor(0, 0, 0);
+  return y + 10;
+}
+
+function pdfRow(doc, cols, y, isHeader = false) {
+  if (isHeader) {
+    doc.setFillColor(15, 61, 46);
+    doc.rect(10, y - 5, 190, 8, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+  } else {
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+  }
+
+  const totalW = 190;
+  const colW = totalW / cols.length;
+  cols.forEach((col, i) => {
+    const x = 200 - (i * colW) - colW / 2;
+    doc.text(String(col), x, y, { align: 'center' });
+  });
+  if (isHeader) doc.setTextColor(0, 0, 0);
+  return y + 7;
+}
+
+// ── 1. كشف حساب عميل ─────────────────────────────────────
+async function exportClientPDF(saleId) {
+  const sale = sales.find(s => s.id === saleId);
+  if (!sale) return;
+  const project = projects.find(p => p.id === sale.projectId);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  let y = pdfHeader(doc, 'Customer Account Statement', `${sale.customerName} - ${project?.projectName || ''}`);
+
+  // بيانات العميل
+  y = pdfSectionTitle(doc, 'Customer Information', y);
+  doc.setFontSize(9);
+  const info = [
+    ['Customer', sale.customerName],
+    ['Phone', sale.customerPhone || '-'],
+    ['Project', project?.projectName || '-'],
+    ['Unit', `${sale.unitType === 'apartment' ? 'Apartment' : 'Shop'} ${sale.unitNumber || ''}`],
+    ['Sale Date', sale.saleDate],
+    ['Total Price', formatCurrency(sale.totalPrice) + ' EGP'],
+    ['Payment Type', sale.paymentType === 'cash' ? 'Cash' : 'Installments'],
+  ];
+  info.forEach(([label, val]) => {
+    doc.setFont('helvetica', 'bold'); doc.text(label + ':', 195, y, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.text(val, 130, y, { align: 'right' });
+    y += 6;
+  });
+  y += 4;
+
+  // ملخص مالي
+  const totalPaid = getTotalPaid(sale);
+  const remaining = sale.totalPrice - totalPaid;
+  y = pdfSectionTitle(doc, 'Financial Summary', y);
+  doc.setFontSize(9);
+  [
+    ['Total Price', formatCurrency(sale.totalPrice) + ' EGP'],
+    ['Total Paid', formatCurrency(totalPaid) + ' EGP'],
+    ['Remaining', formatCurrency(remaining) + ' EGP'],
+  ].forEach(([label, val]) => {
+    doc.setFont('helvetica', 'bold'); doc.text(label + ':', 195, y, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.text(val, 130, y, { align: 'right' });
+    y += 6;
+  });
+  y += 4;
+
+  // جدول الأقساط
+  y = pdfSectionTitle(doc, 'Installments Schedule', y);
+  y = pdfRow(doc, ['#', 'Label', 'Amount', 'Due Date', 'Paid', 'Remaining', 'Status'], y, true);
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  (sale.payments || []).forEach((inst, i) => {
+    if (y > 270) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
+    const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
+    const isOverdue = (inst.status !== 'paid') && due < today;
+    if (i % 2 === 0) { doc.setFillColor(247,245,240); doc.rect(10, y-5, 190, 7, 'F'); }
+    if (isOverdue) { doc.setTextColor(192, 57, 43); }
+    y = pdfRow(doc, [
+      i + 1,
+      inst.label || `Inst. ${i+1}`,
+      formatCurrency(inst.totalAmount),
+      inst.dueDate,
+      formatCurrency(inst.paidAmount || 0),
+      formatCurrency(inst.remainingAmount || 0),
+      inst.status === 'paid' ? 'Paid' : isOverdue ? 'Overdue' : inst.status === 'partial' ? 'Partial' : 'Pending'
+    ], y);
+    doc.setTextColor(0,0,0);
+  });
+
+  pdfFooter(doc, 1);
+  doc.save(`client-statement-${sale.customerName}.pdf`);
+  showToast('تم تصدير كشف حساب العميل');
+}
+
+// ── 2. تقرير مشروع كامل ──────────────────────────────────
+async function exportProjectPDF(projectId) {
+  const project = projects.find(p => p.id === projectId);
+  if (!project) return;
+  const expenses = await DB.getProjectExpenses(projectId);
+  const projectSales = sales.filter(s => s.projectId === projectId);
+  const totalCosts = expenses.reduce((s, e) => s + e.amount, 0);
+  const totalPaid = projectSales.reduce((s, sale) => s + getTotalPaid(sale), 0);
+  const totalExpected = projectSales.reduce((s, sale) => s + sale.totalPrice, 0);
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  let y = pdfHeader(doc, 'Project Report', project.projectName);
+
+  // ملخص
+  y = pdfSectionTitle(doc, 'Project Summary', y);
+  doc.setFontSize(9);
+  [
+    ['Project', project.projectName],
+    ['Location', project.location || '-'],
+    ['Status', project.status === 'under_construction' ? 'Under Construction' : 'Completed'],
+    ['Apartments', project.apartmentsCount],
+    ['Shops', project.shopsCount],
+    ['Total Costs', formatCurrency(totalCosts) + ' EGP'],
+    ['Revenue Collected', formatCurrency(totalPaid) + ' EGP'],
+    ['Expected Revenue', formatCurrency(totalExpected) + ' EGP'],
+    ['Net Profit', formatCurrency(totalPaid - totalCosts) + ' EGP'],
+  ].forEach(([label, val]) => {
+    doc.setFont('helvetica', 'bold'); doc.text(label + ':', 195, y, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.text(String(val), 130, y, { align: 'right' });
+    y += 6;
+  });
+  y += 4;
+
+  // مصروفات
+  y = pdfSectionTitle(doc, 'Expenses', y);
+  y = pdfRow(doc, ['#', 'Date', 'Category', 'Recipient', 'Amount'], y, true);
+  expenses.forEach((e, i) => {
+    if (y > 270) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
+    if (i % 2 === 0) { doc.setFillColor(247,245,240); doc.rect(10, y-5, 190, 7, 'F'); }
+    y = pdfRow(doc, [i+1, e.date, getCategoryName(e.category, e.customCategory).replace(/[^\x00-\x7F]/g,''), e.recipient || '-', formatCurrency(e.amount)], y);
+  });
+  y += 4;
+
+  // مبيعات
+  if (y > 240) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
+  y = pdfSectionTitle(doc, 'Sales', y);
+  y = pdfRow(doc, ['#', 'Customer', 'Unit', 'Price', 'Paid', 'Remaining'], y, true);
+  projectSales.forEach((sale, i) => {
+    if (y > 270) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
+    if (i % 2 === 0) { doc.setFillColor(247,245,240); doc.rect(10, y-5, 190, 7, 'F'); }
+    const paid = getTotalPaid(sale);
+    y = pdfRow(doc, [i+1, sale.customerName, `${sale.unitType === 'apartment' ? 'Apt' : 'Shop'} ${sale.unitNumber||''}`, formatCurrency(sale.totalPrice), formatCurrency(paid), formatCurrency(sale.totalPrice - paid)], y);
+  });
+
+  pdfFooter(doc, doc.getCurrentPageInfo().pageNumber);
+  doc.save(`project-report-${project.projectName}.pdf`);
+  showToast('تم تصدير تقرير المشروع');
+}
+
+// ── 3. تقرير شهري عام ────────────────────────────────────
+async function exportMonthlyPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const now = new Date();
+  const monthName = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  let y = pdfHeader(doc, 'Monthly Report', monthName);
+
+  // إجمالي
+  let totalCosts = 0;
+  for (const p of projects) totalCosts += await calculateProjectCosts(p.id);
+  const totalPaid = sales.reduce((s, sale) => s + getTotalPaid(sale), 0);
+  const totalExpected = sales.reduce((s, sale) => s + sale.totalPrice, 0);
+
+  y = pdfSectionTitle(doc, 'Overall Summary', y);
+  doc.setFontSize(9);
+  [
+    ['Total Projects', projects.length],
+    ['Total Sales Contracts', sales.length],
+    ['Revenue Collected', formatCurrency(totalPaid) + ' EGP'],
+    ['Expected Revenue', formatCurrency(totalExpected) + ' EGP'],
+    ['Remaining to Collect', formatCurrency(totalExpected - totalPaid) + ' EGP'],
+    ['Total Expenses', formatCurrency(totalCosts) + ' EGP'],
+    ['Net Profit', formatCurrency(totalPaid - totalCosts) + ' EGP'],
+  ].forEach(([label, val]) => {
+    doc.setFont('helvetica', 'bold'); doc.text(label + ':', 195, y, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.text(String(val), 130, y, { align: 'right' });
+    y += 6;
+  });
+  y += 4;
+
+  // الأقساط المتأخرة
+  const today = new Date(); today.setHours(0,0,0,0);
+  const overdue = [];
+  for (const sale of sales) {
+    const proj = projects.find(p => p.id === sale.projectId);
+    (sale.payments || []).forEach(inst => {
+      if (inst.status !== 'paid') {
+        const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
+        if (due < today) overdue.push({ sale, proj, inst });
+      }
+    });
+  }
+
+  if (overdue.length > 0) {
+    if (y > 220) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
+    y = pdfSectionTitle(doc, `Overdue Installments (${overdue.length})`, y);
+    y = pdfRow(doc, ['Customer', 'Project', 'Label', 'Due Date', 'Remaining'], y, true);
+    overdue.forEach((item, i) => {
+      if (y > 270) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
+      if (i % 2 === 0) { doc.setFillColor(252,232,230); doc.rect(10, y-5, 190, 7, 'F'); }
+      doc.setTextColor(192, 57, 43);
+      y = pdfRow(doc, [item.sale.customerName, item.proj?.projectName || '-', item.inst.label || '-', item.inst.dueDate, formatCurrency(item.inst.remainingAmount || item.inst.totalAmount)], y);
+      doc.setTextColor(0,0,0);
+    });
+    y += 4;
+  }
+
+  // ملخص المشاريع
+  if (y > 220) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
+  y = pdfSectionTitle(doc, 'Projects Summary', y);
+  y = pdfRow(doc, ['Project', 'Status', 'Costs', 'Collected', 'Expected', 'Profit'], y, true);
+  for (const p of projects) {
+    if (y > 270) { pdfFooter(doc, doc.getCurrentPageInfo().pageNumber); doc.addPage(); y = 20; }
+    const costs = await calculateProjectCosts(p.id);
+    const rev = calculateProjectRevenue(p.id);
+    const exp = sales.filter(s => s.projectId === p.id).reduce((s, sale) => s + sale.totalPrice, 0);
+    if ((projects.indexOf(p)) % 2 === 0) { doc.setFillColor(247,245,240); doc.rect(10, y-5, 190, 7, 'F'); }
+    y = pdfRow(doc, [p.projectName.slice(0,16), p.status === 'under_construction' ? 'Active' : 'Done', formatCurrency(costs), formatCurrency(rev), formatCurrency(exp), formatCurrency(rev-costs)], y);
+  }
+
+  pdfFooter(doc, doc.getCurrentPageInfo().pageNumber);
+  doc.save(`monthly-report-${now.getFullYear()}-${now.getMonth()+1}.pdf`);
+  showToast('تم تصدير التقرير الشهري');
+}
   document.getElementById(id)?.classList.remove('active');
 }
 
