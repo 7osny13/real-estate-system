@@ -1936,6 +1936,11 @@ async function exportMonthlyPDF() {
   doc.save(`monthly-report-${now.getFullYear()}-${now.getMonth()+1}.pdf`);
   showToast('تم تصدير التقرير الشهري');
 }
+
+// ============================================================
+// MODAL CLOSE
+// ============================================================
+function closeModal(id) {
   document.getElementById(id)?.classList.remove('active');
 }
 
