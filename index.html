@@ -4,305 +4,320 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>نظام إدارة المشاريع العقارية</title>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="config.js"></script>
 <style>
 :root {
-  --primary: #1a4d2e;
-  --primary-light: #2d7a4f;
-  --secondary: #d4af37;
-  --accent: #c7923e;
-  --bg-main: #f8f7f4;
-  --bg-card: #ffffff;
-  --text-primary: #1a1a1a;
-  --text-secondary: #5a5a5a;
-  --border: #e5e3dc;
-  --shadow: rgba(26, 77, 46, 0.08);
-  --success: #2d7a4f;
-  --warning: #f39c12;
-  --danger: #c0392b;
+  --primary:       #0f3d2e;
+  --primary-mid:   #1a5c42;
+  --primary-light: #2d8a60;
+  --gold:          #c9982a;
+  --gold-light:    #e8b84b;
+  --accent:        #e07b39;
+  --bg:            #f0ede6;
+  --bg-card:       #ffffff;
+  --bg-subtle:     #f7f5f0;
+  --text:          #1c1c1a;
+  --text-muted:    #6b6860;
+  --border:        #e0ddd6;
+  --danger:        #c0392b;
+  --warning:       #e67e22;
+  --success:       #1e7e4a;
+  --info:          #2471a3;
+  --radius-sm:     8px;
+  --radius-md:     14px;
+  --radius-lg:     20px;
+  --radius-xl:     28px;
 }
-* { margin:0; padding:0; box-sizing:border-box; }
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;overflow-x:hidden}
 
-body {
-  font-family: 'Cairo', sans-serif;
-  background: var(--bg-main);
-  color: var(--text-primary);
-  line-height: 1.6;
-  overflow-x: hidden;
-}
+/* HEADER */
+.header{background:var(--primary);position:sticky;top:0;z-index:1000;box-shadow:0 4px 32px rgba(0,0,0,0.25)}
+.header-inner{max-width:1440px;margin:0 auto;padding:0 2rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;min-height:68px}
+.logo{display:flex;align-items:center;gap:.75rem;font-family:'Tajawal',sans-serif;font-size:1.35rem;font-weight:900;color:#fff}
+.logo-mark{width:42px;height:42px;border-radius:var(--radius-sm);background:linear-gradient(135deg,var(--gold),var(--accent));display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0}
+.nav{display:flex;gap:4px;flex-wrap:wrap}
+.nav-btn{position:relative;background:transparent;border:none;color:rgba(255,255,255,.7);padding:.55rem 1.1rem;border-radius:var(--radius-sm);cursor:pointer;font-family:'Cairo',sans-serif;font-size:.92rem;font-weight:600;transition:all .2s;white-space:nowrap}
+.nav-btn:hover{background:rgba(255,255,255,.1);color:#fff}
+.nav-btn.active{background:var(--gold);color:var(--primary);box-shadow:0 2px 12px rgba(201,152,42,.4)}
+.badge-dot{position:absolute;top:4px;left:4px;background:#e74c3c;color:white;border-radius:10px;min-width:18px;height:18px;font-size:.65rem;display:none;align-items:center;justify-content:center;font-weight:700;padding:0 4px}
 
-/* ── Header ── */
-.header {
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
-  color: white;
-  padding: 1.25rem 0;
-  box-shadow: 0 4px 20px var(--shadow);
-  position: sticky; top:0; z-index:1000;
-}
-.container { max-width:1400px; margin:0 auto; padding:0 2rem; }
-.header-content { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; }
-.logo { font-family:'Amiri',serif; font-size:1.75rem; font-weight:700; display:flex; align-items:center; gap:0.5rem; }
-.logo-icon { width:44px; height:44px; background:var(--secondary); border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.3rem; }
-.nav-tabs { display:flex; gap:0.5rem; flex-wrap:wrap; }
-.nav-tab {
-  background:rgba(255,255,255,0.1); border:2px solid rgba(255,255,255,0.2);
-  color:white; padding:0.6rem 1.25rem; border-radius:10px; cursor:pointer;
-  font-weight:600; transition:all 0.25s; font-family:'Cairo',sans-serif; font-size:0.95rem;
-  position:relative;
-}
-.nav-tab:hover { background:rgba(255,255,255,0.2); transform:translateY(-2px); }
-.nav-tab.active { background:var(--secondary); border-color:var(--secondary); }
-.overdue-badge {
-  position:absolute; top:-6px; left:-6px;
-  background:var(--danger); color:white;
-  border-radius:50%; width:20px; height:20px;
-  font-size:0.7rem; display:none; align-items:center; justify-content:center;
-  font-weight:700;
-}
+/* LAYOUT */
+.main{max-width:1440px;margin:0 auto;padding:2rem}
+.view{display:none}
+.view.active{display:block;animation:fadeUp .3s ease-out}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 
-/* ── Layout ── */
-.main-content { padding:2.5rem 0; }
-.view { display:none; }
-.view.active { display:block; animation: fadeUp 0.35s ease-out; }
-@keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+/* SECTION HEADER */
+.section-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap;gap:1rem}
+.section-title{font-family:'Tajawal',sans-serif;font-size:1.5rem;font-weight:700;color:var(--primary)}
 
-/* ── Cards ── */
-.card { background:var(--bg-card); border-radius:20px; padding:2rem; margin-bottom:2rem; box-shadow:0 8px 30px var(--shadow); border:1px solid var(--border); }
-.card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; padding-bottom:1rem; border-bottom:3px solid var(--secondary); flex-wrap:wrap; gap:1rem; }
-.card-title { font-size:1.6rem; font-weight:700; color:var(--primary); font-family:'Amiri',serif; }
+/* STAT CARDS */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1rem;margin-bottom:1.75rem}
+.stat-card{background:var(--bg-card);border-radius:var(--radius-md);padding:1.25rem 1.5rem;box-shadow:0 2px 8px rgba(15,61,46,.08);border:1px solid var(--border);position:relative;overflow:hidden;transition:all .25s}
+.stat-card::before{content:'';position:absolute;top:0;right:0;width:4px;height:100%;background:var(--primary)}
+.stat-card.gold::before{background:var(--gold)}
+.stat-card.danger::before{background:var(--danger)}
+.stat-card.info::before{background:var(--info)}
+.stat-card:hover{transform:translateY(-3px);box-shadow:0 6px 24px rgba(15,61,46,.12)}
+.stat-label{font-size:.83rem;color:var(--text-muted);font-weight:600;margin-bottom:.4rem}
+.stat-value{font-family:'Tajawal',sans-serif;font-size:1.75rem;font-weight:900;color:var(--primary);line-height:1.1}
+.stat-card.gold .stat-value{color:var(--gold)}
+.stat-card.danger .stat-value{color:var(--danger)}
+.stat-card.info .stat-value{color:var(--info)}
+.stat-sub{font-size:.75rem;color:var(--text-muted);margin-top:.3rem}
 
-/* ── Buttons ── */
-.btn { padding:0.7rem 1.4rem; border:none; border-radius:10px; font-weight:600; cursor:pointer; transition:all 0.25s; font-family:'Cairo',sans-serif; font-size:0.95rem; display:inline-flex; align-items:center; gap:0.4rem; }
-.btn-primary   { background:var(--primary); color:white; }
-.btn-primary:hover   { background:var(--primary-light); transform:translateY(-2px); }
-.btn-secondary { background:var(--secondary); color:white; }
-.btn-secondary:hover { background:var(--accent); transform:translateY(-2px); }
-.btn-danger    { background:var(--danger); color:white; }
-.btn-danger:hover    { background:#a93226; transform:translateY(-2px); }
-.btn-warning   { background:var(--warning); color:white; }
-.btn-warning:hover   { background:#e67e22; transform:translateY(-2px); }
-.btn-sm  { padding:0.5rem 1rem; font-size:0.88rem; }
-.btn-xs  { padding:0.3rem 0.65rem; font-size:0.8rem; }
+/* CARDS */
+.card{background:var(--bg-card);border-radius:var(--radius-lg);padding:1.75rem;margin-bottom:1.5rem;box-shadow:0 2px 8px rgba(15,61,46,.08);border:1px solid var(--border)}
+.card-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;padding-bottom:1rem;border-bottom:2px solid var(--bg-subtle);flex-wrap:wrap;gap:.75rem}
+.card-title{font-family:'Tajawal',sans-serif;font-size:1.15rem;font-weight:700;color:var(--primary)}
 
-/* ── Forms ── */
-.form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:1.25rem; margin-bottom:1.25rem; }
-.form-group { display:flex; flex-direction:column; gap:0.4rem; }
-.form-label { font-weight:600; color:var(--primary); font-size:0.93rem; }
-.form-control { padding:0.8rem; border:2px solid var(--border); border-radius:10px; font-family:'Cairo',sans-serif; font-size:1rem; transition:all 0.25s; background:var(--bg-main); }
-.form-control:focus { outline:none; border-color:var(--primary); box-shadow:0 0 0 4px rgba(26,77,46,0.1); background:white; }
+/* CHARTS */
+.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.5rem}
+.chart-card{background:var(--bg-card);border-radius:var(--radius-md);padding:1.25rem;border:1px solid var(--border);box-shadow:0 2px 8px rgba(15,61,46,.08)}
+.chart-title{font-size:.88rem;font-weight:700;color:var(--text-muted);margin-bottom:1rem}
+.chart-wrap{position:relative;height:200px}
 
-/* ── Projects grid ── */
-.projects-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:1.75rem; margin-top:1.75rem; }
-.project-card { background:white; border-radius:16px; padding:1.5rem; border:2px solid var(--border); transition:all 0.3s; cursor:pointer; position:relative; overflow:hidden; }
-.project-card::before { content:''; position:absolute; top:0; left:0; width:100%; height:4px; background:linear-gradient(90deg,var(--primary),var(--secondary)); }
-.project-card:hover { transform:translateY(-4px); box-shadow:0 12px 40px rgba(26,77,46,0.15); border-color:var(--primary); }
-.project-name { font-size:1.4rem; font-weight:700; color:var(--primary); margin-bottom:0.75rem; font-family:'Amiri',serif; }
-.project-stats { display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-top:1rem; }
-.stat { background:var(--bg-main); padding:0.65rem; border-radius:10px; text-align:center; }
-.stat-value { font-size:1.2rem; font-weight:700; color:var(--primary); }
-.stat-label { font-size:0.82rem; color:var(--text-secondary); margin-top:0.2rem; }
+/* OVERDUE */
+.overdue-alert{display:none;background:#fff0ee;border:1.5px solid #e8a49a;border-radius:var(--radius-md);padding:1rem 1.25rem;margin-bottom:1.5rem;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.overdue-alert-text{font-weight:700;color:var(--danger);font-size:.95rem}
 
-/* ── Summary cards ── */
-.summary-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1.5rem; margin-bottom:2rem; }
-.summary-card { background:linear-gradient(135deg,var(--primary),var(--primary-light)); color:white; padding:1.5rem; border-radius:16px; box-shadow:0 8px 30px rgba(26,77,46,0.2); transition:all 0.3s; }
-.summary-card:hover { transform:translateY(-4px); }
-.summary-card.gold   { background:linear-gradient(135deg,var(--secondary),var(--accent)); }
-.summary-card.danger { background:linear-gradient(135deg,var(--danger),#a93226); }
-.summary-label { font-size:0.93rem; opacity:0.9; margin-bottom:0.4rem; }
-.summary-value { font-size:1.9rem; font-weight:700; font-family:'Amiri',serif; }
+/* PROJECT CARDS */
+.projects-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:1.25rem}
+.proj-card{background:var(--bg-card);border-radius:var(--radius-md);border:1.5px solid var(--border);overflow:hidden;cursor:pointer;transition:all .25s}
+.proj-card:hover{transform:translateY(-4px);box-shadow:0 6px 24px rgba(15,61,46,.12);border-color:var(--primary-light)}
+.proj-bar{height:5px;background:linear-gradient(90deg,var(--primary),var(--gold))}
+.proj-body{padding:1.25rem}
+.proj-name{font-family:'Tajawal',sans-serif;font-size:1.15rem;font-weight:700;color:var(--primary);margin-bottom:.25rem}
+.proj-loc{font-size:.8rem;color:var(--text-muted);margin-bottom:.75rem}
+.proj-stats-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem;margin:.75rem 0}
+.proj-stat{background:var(--bg-subtle);border-radius:var(--radius-sm);padding:.5rem;text-align:center}
+.proj-stat-val{font-size:1.05rem;font-weight:700;color:var(--primary)}
+.proj-stat-lbl{font-size:.7rem;color:var(--text-muted)}
+.proj-actions{display:flex;gap:.5rem;margin-top:.75rem;flex-wrap:wrap}
 
-/* ── Badges ── */
-.badge { display:inline-block; padding:0.3rem 0.7rem; border-radius:20px; font-size:0.82rem; font-weight:600; }
-.badge-success { background:rgba(45,122,79,0.12); color:var(--success); }
-.badge-warning { background:rgba(243,156,18,0.12); color:var(--warning); }
-.badge-danger  { background:rgba(192,57,43,0.12);  color:var(--danger); }
-.badge-info    { background:rgba(52,152,219,0.12);  color:#2980b9; }
+/* SALE CARDS */
+.sale-card{background:var(--bg-card);border-radius:var(--radius-md);border:1.5px solid var(--border);padding:1.25rem;margin-bottom:.85rem;transition:all .25s}
+.sale-card.overdue{border-color:#e8a49a;background:#fff8f7}
+.sale-card:hover{box-shadow:0 2px 8px rgba(15,61,46,.08)}
+.sale-customer{font-family:'Tajawal',sans-serif;font-size:1.1rem;font-weight:700;color:var(--primary)}
+.sale-meta{font-size:.82rem;color:var(--text-muted);margin-top:.2rem}
+.sale-price{font-family:'Tajawal',sans-serif;font-size:1.3rem;font-weight:900;color:var(--gold)}
 
-/* ── Status badges ── */
-.status-badge { display:inline-flex; align-items:center; gap:0.4rem; padding:0.4rem 0.9rem; border-radius:20px; font-weight:600; font-size:0.88rem; }
-.status-under-construction { background:rgba(243,156,18,0.1); color:var(--warning); }
-.status-completed { background:rgba(45,122,79,0.1); color:var(--success); }
+/* BADGES */
+.badge{display:inline-flex;align-items:center;padding:.2rem .65rem;border-radius:20px;font-size:.76rem;font-weight:700;white-space:nowrap}
+.badge-green{background:#e8f5ee;color:#1e7e4a}
+.badge-gold{background:#fdf3dc;color:#9a6f10}
+.badge-red{background:#fce8e6;color:#c0392b}
+.badge-blue{background:#e8f1fb;color:#1a5276}
+.badge-orange{background:#fef0e7;color:#c0642b}
+.badge-gray{background:#f0ede6;color:#5a5850}
 
-/* ── Modal ── */
-.modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); backdrop-filter:blur(4px); z-index:2000; align-items:flex-start; justify-content:center; overflow-y:auto; padding:2rem 1rem; }
-.modal.active { display:flex; }
-.modal-content { background:white; border-radius:20px; padding:2rem; max-width:900px; width:100%; box-shadow:0 20px 60px rgba(0,0,0,0.3); animation:slideUp 0.3s ease-out; margin:auto; }
-@keyframes slideUp { from { transform:translateY(40px); opacity:0; } to { transform:translateY(0); opacity:1; } }
-.modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; padding-bottom:1rem; border-bottom:3px solid var(--secondary); }
-.modal-title { font-size:1.6rem; font-weight:700; color:var(--primary); font-family:'Amiri',serif; }
-.close-modal { background:none; border:none; font-size:2rem; cursor:pointer; color:var(--text-secondary); width:38px; height:38px; display:flex; align-items:center; justify-content:center; border-radius:50%; transition:all 0.25s; }
-.close-modal:hover { background:var(--bg-main); color:var(--danger); transform:rotate(90deg); }
+/* STATUS */
+.status-pill{display:inline-flex;align-items:center;gap:.35rem;padding:.3rem .8rem;border-radius:20px;font-size:.8rem;font-weight:700}
+.status-construction{background:#fef0e7;color:var(--warning)}
+.status-done{background:#e8f5ee;color:var(--success)}
 
-/* ── Expense items ── */
-.expense-summary { background:var(--bg-main); padding:1.25rem; border-radius:12px; margin-bottom:1.25rem; }
-.expense-category { display:flex; justify-content:space-between; align-items:center; padding:0.65rem; margin-bottom:0.4rem; background:white; border-radius:8px; border-right:4px solid var(--primary); }
-.expense-item { background:white; padding:1rem; border-radius:10px; margin-bottom:0.65rem; border:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; transition:all 0.25s; }
-.expense-item:hover { box-shadow:0 4px 12px var(--shadow); border-color:var(--primary); }
-.expense-details { flex:1; }
-.expense-date { font-size:0.83rem; color:var(--text-secondary); }
-.expense-category-label { font-weight:600; color:var(--primary); }
-.expense-recipient { font-size:0.88rem; color:var(--text-secondary); }
-.expense-amount-display { font-size:1.2rem; font-weight:700; color:var(--secondary); margin-left:0.75rem; white-space:nowrap; }
-.expense-actions { display:flex; gap:0.4rem; margin-right:0.75rem; }
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:.4rem;padding:.65rem 1.25rem;border:none;border-radius:var(--radius-sm);font-family:'Cairo',sans-serif;font-size:.9rem;font-weight:700;cursor:pointer;transition:all .2s;white-space:nowrap;text-decoration:none}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-mid);transform:translateY(-1px);box-shadow:0 4px 12px rgba(15,61,46,.3)}
+.btn-gold{background:var(--gold);color:#fff}
+.btn-gold:hover{background:var(--gold-light);transform:translateY(-1px)}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-danger:hover{background:#a93226;transform:translateY(-1px)}
+.btn-warning{background:var(--warning);color:#fff}
+.btn-warning:hover{background:#ca6f1e;transform:translateY(-1px)}
+.btn-info{background:var(--info);color:#fff}
+.btn-info:hover{background:#1a5276;transform:translateY(-1px)}
+.btn-ghost{background:var(--bg-subtle);color:var(--text);border:1.5px solid var(--border)}
+.btn-ghost:hover{background:var(--border)}
+.btn-pdf{background:#c0392b;color:#fff}
+.btn-pdf:hover{background:#a93226;transform:translateY(-1px)}
+.btn-success{background:var(--success);color:#fff}
+.btn-success:hover{background:#155a35}
+.btn-sm{padding:.42rem .85rem;font-size:.82rem}
+.btn-xs{padding:.28rem .6rem;font-size:.75rem}
 
-/* ── Action buttons ── */
-.action-buttons { display:flex; gap:0.5rem; flex-wrap:wrap; }
+/* FORMS */
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1.1rem;margin-bottom:1.1rem}
+.form-group{display:flex;flex-direction:column;gap:.4rem}
+.form-label{font-size:.86rem;font-weight:700;color:var(--primary)}
+.form-control{padding:.75rem .9rem;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-family:'Cairo',sans-serif;font-size:.95rem;background:var(--bg-subtle);color:var(--text);transition:all .2s}
+.form-control:focus{outline:none;border-color:var(--primary-light);background:#fff;box-shadow:0 0 0 3px rgba(45,138,96,.12)}
+.form-section{font-family:'Tajawal',sans-serif;font-size:1rem;font-weight:700;color:var(--primary);border-bottom:2px solid var(--gold);padding-bottom:.4rem;margin:1.25rem 0 .9rem;display:flex;align-items:center;gap:.5rem}
 
-/* ── Empty state ── */
-.empty-state { text-align:center; padding:3.5rem 2rem; color:var(--text-secondary); }
-.empty-state-icon { font-size:3.5rem; margin-bottom:1rem; opacity:0.3; }
-.empty-state-text { font-size:1.15rem; }
+/* MODALS */
+.modal{display:none;position:fixed;inset:0;background:rgba(5,20,12,.7);backdrop-filter:blur(4px);z-index:2000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:2rem 1rem}
+.modal.active{display:flex}
+.modal-box{background:var(--bg-card);border-radius:var(--radius-xl);padding:2rem;max-width:920px;width:100%;box-shadow:0 16px 48px rgba(15,61,46,.16);animation:modalIn .28s ease-out;margin:auto}
+@keyframes modalIn{from{opacity:0;transform:translateY(30px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+.modal-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;padding-bottom:1rem;border-bottom:2px solid var(--bg-subtle)}
+.modal-title{font-family:'Tajawal',sans-serif;font-size:1.35rem;font-weight:700;color:var(--primary)}
+.modal-close{width:36px;height:36px;border-radius:50%;border:none;background:var(--bg-subtle);color:var(--text-muted);font-size:1.3rem;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center}
+.modal-close:hover{background:#fce8e6;color:var(--danger);transform:rotate(90deg)}
 
-/* ── Section divider ── */
-.section-divider { margin:1.75rem 0 0.75rem; padding-bottom:0.5rem; border-bottom:2px solid var(--secondary); }
-.section-title { color:var(--primary); font-weight:700; font-size:1.1rem; display:flex; align-items:center; gap:0.5rem; }
+/* EXPENSE ITEMS */
+.expense-item{display:flex;justify-content:space-between;align-items:center;background:var(--bg-subtle);border-radius:var(--radius-sm);padding:.85rem 1rem;margin-bottom:.5rem;transition:all .2s;border:1px solid transparent}
+.expense-item:hover{border-color:var(--border);background:#fff}
+.expense-cat{font-weight:700;color:var(--primary);font-size:.88rem}
+.expense-date{font-size:.76rem;color:var(--text-muted)}
+.expense-amt{font-family:'Tajawal',sans-serif;font-size:1.05rem;font-weight:700;color:var(--gold);white-space:nowrap}
 
-/* ── Info box ── */
-.info-box { background:rgba(52,152,219,0.1); border-right:4px solid #3498db; padding:0.9rem; border-radius:8px; margin:1rem 0; }
+/* EXPENSE SUMMARY */
+.exp-summary{background:var(--bg-subtle);border-radius:var(--radius-md);padding:1rem;margin-bottom:1rem}
+.exp-cat-row{display:flex;justify-content:space-between;align-items:center;padding:.6rem .75rem;margin-bottom:.35rem;background:#fff;border-radius:var(--radius-sm);border-right:3px solid var(--primary)}
 
-/* ── Installments sum display ── */
-#installments-sum-display { font-size:0.9rem; margin-top:0.5rem; padding:0.6rem; background:var(--bg-main); border-radius:8px; display:flex; gap:1rem; flex-wrap:wrap; align-items:center; }
+/* INSTALLMENTS SUM */
+#installments-sum-display{font-size:.86rem;padding:.6rem .9rem;background:var(--bg-subtle);border-radius:var(--radius-sm);margin-top:.5rem;display:flex;gap:1rem;flex-wrap:wrap;align-items:center}
 
-/* ── Overdue alert card ── */
-#overdue-alert-card {
-  display:none; background:#fff0f0; border:2px solid var(--danger);
-  border-radius:16px; padding:1.25rem 1.75rem; margin-bottom:1.75rem;
-  display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem;
-}
+/* REPORTS */
+.report-section{margin-bottom:2rem}
+.report-section-title{font-family:'Tajawal',sans-serif;font-size:1.05rem;font-weight:700;color:var(--primary);border-right:4px solid var(--gold);padding-right:.75rem;margin-bottom:1rem}
+.report-table{width:100%;border-collapse:collapse;font-size:.88rem}
+.report-table th{background:var(--primary);color:#fff;padding:.65rem 1rem;text-align:right;font-weight:600;font-size:.83rem}
+.report-table td{padding:.65rem 1rem;border-bottom:1px solid var(--border)}
+.report-table tr:hover td{background:var(--bg-subtle)}
 
-/* ── Responsive ── */
-@media(max-width:768px) {
-  .header-content { flex-direction:column; }
-  .nav-tabs { width:100%; justify-content:center; }
-  .projects-grid { grid-template-columns:1fr; }
-  .form-grid { grid-template-columns:1fr; }
-  .summary-grid { grid-template-columns:1fr 1fr; }
-  .modal-content { padding:1.25rem; }
+/* EMPTY */
+.empty{text-align:center;padding:3rem 1rem;color:var(--text-muted)}
+.empty-icon{font-size:3rem;opacity:.3;margin-bottom:.75rem}
+
+/* INFO BOX */
+.info-box{background:#eaf3fb;border-right:4px solid var(--info);border-radius:var(--radius-sm);padding:.8rem 1rem;font-size:.86rem;color:#1a3a5c;margin:.75rem 0}
+
+/* RESPONSIVE */
+@media(max-width:768px){
+  .header-inner{padding:.75rem 1rem}
+  .main{padding:1rem}
+  .charts-row{grid-template-columns:1fr}
+  .projects-grid{grid-template-columns:1fr}
+  .stats-row{grid-template-columns:1fr 1fr}
+  .modal-box{padding:1.25rem}
+  .form-grid{grid-template-columns:1fr}
 }
 </style>
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════ HEADER ═══ -->
 <header class="header">
-  <div class="container">
-    <div class="header-content">
-      <div class="logo">
-        <div class="logo-icon">🏗️</div>
-        <span>نظام إدارة المشاريع العقارية</span>
-      </div>
-      <div class="nav-tabs">
-        <button class="nav-tab active" onclick="showView('dashboard', this)">📊 لوحة التحكم</button>
-        <button class="nav-tab" onclick="showView('projects', this)">🏢 المشاريع</button>
-        <button class="nav-tab" onclick="showView('sales', this)" style="position:relative">
-          💰 المبيعات
-          <span id="overdue-badge" class="overdue-badge">0</span>
-        </button>
-        <button class="nav-tab" onclick="showView('reports', this)">📈 التقارير</button>
-      </div>
+  <div class="header-inner">
+    <div class="logo">
+      <div class="logo-mark">🏗️</div>
+      <span>إدارة المشاريع العقارية</span>
     </div>
+    <nav class="nav">
+      <button class="nav-btn active" onclick="showView('dashboard',this)">📊 لوحة التحكم</button>
+      <button class="nav-btn" onclick="showView('projects',this)">🏢 المشاريع</button>
+      <button class="nav-btn" onclick="showView('sales',this)" style="position:relative">
+        💰 المبيعات
+        <span id="overdue-badge" class="badge-dot">0</span>
+      </button>
+      <button class="nav-btn" onclick="showView('reports',this)">📈 التقارير</button>
+    </nav>
   </div>
 </header>
 
-<!-- ═══════════════════════════════════════ MAIN ═══ -->
-<main class="main-content">
-<div class="container">
+<main class="main">
 
-  <!-- ── Dashboard ── -->
+  <!-- DASHBOARD -->
   <div id="dashboard-view" class="view active">
-
-    <!-- Overdue alert -->
-    <div id="overdue-alert-card" style="display:none">
-      <div style="display:flex;align-items:center;gap:0.75rem">
-        <span style="font-size:2rem">🔴</span>
-        <div>
-          <div style="font-weight:700;color:var(--danger);font-size:1.1rem">أقساط متأخرة!</div>
-          <div style="color:var(--text-secondary)">يوجد <strong id="overdue-count">0</strong> قسط متأخر يحتاج متابعة</div>
-        </div>
+    <div id="overdue-alert-card" class="overdue-alert">
+      <div>
+        <div class="overdue-alert-text">⚠️ يوجد <span id="overdue-count">0</span> قسط متأخر يحتاج متابعة</div>
+        <div style="font-size:.82rem;color:var(--text-muted)">اضغط لعرض التفاصيل</div>
       </div>
-      <button class="btn btn-danger btn-sm" onclick="showView('sales', document.querySelectorAll('.nav-tab')[2])">عرض الأقساط</button>
+      <button class="btn btn-danger btn-sm" onclick="showView('sales',document.querySelectorAll('.nav-btn')[2])">عرض الآن</button>
     </div>
-
-    <div class="summary-grid">
-      <div class="summary-card"><div class="summary-label">إجمالي المشاريع</div><div class="summary-value" id="total-projects">0</div></div>
-      <div class="summary-card gold"><div class="summary-label">إجمالي الإيرادات المحصلة</div><div class="summary-value" id="total-revenue">0 <span style="font-size:1rem">ج.م</span></div></div>
-      <div class="summary-card"><div class="summary-label">إجمالي التكاليف</div><div class="summary-value" id="total-costs">0 <span style="font-size:1rem">ج.م</span></div></div>
-      <div class="summary-card gold"><div class="summary-label">صافي الربح</div><div class="summary-value" id="net-profit">0 <span style="font-size:1rem">ج.م</span></div></div>
+    <div class="stats-row">
+      <div class="stat-card"><div class="stat-label">إجمالي المشاريع</div><div class="stat-value" id="total-projects">0</div><div class="stat-sub">مشروع مسجل</div></div>
+      <div class="stat-card gold"><div class="stat-label">إيرادات محصلة</div><div class="stat-value" id="total-revenue">0</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card"><div class="stat-label">إجمالي التكاليف</div><div class="stat-value" id="total-costs">0</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card gold"><div class="stat-label">صافي الربح</div><div class="stat-value" id="net-profit">0</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card info"><div class="stat-label">إجمالي المبيعات</div><div class="stat-value" id="total-expected">0</div><div class="stat-sub">قيمة متوقعة</div></div>
+      <div class="stat-card danger"><div class="stat-label">متبقي تحصيله</div><div class="stat-value" id="total-remaining">0</div><div class="stat-sub">ج.م</div></div>
     </div>
-
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-title">💰 الإيرادات مقابل التكاليف</div>
+        <div class="chart-wrap"><canvas id="chart-projects"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">📋 حالة الأقساط</div>
+        <div class="chart-wrap"><canvas id="chart-installments"></canvas></div>
+      </div>
+    </div>
     <div class="card">
-      <div class="card-header"><h2 class="card-title">المشاريع النشطة</h2></div>
-      <div class="projects-grid" id="active-projects-grid"></div>
+      <div class="card-hd"><div class="card-title">المشاريع النشطة</div></div>
+      <div class="projects-grid" id="active-projects-grid">
+        <div class="empty"><div class="empty-icon">🏗️</div><p>لا توجد مشاريع نشطة</p></div>
+      </div>
     </div>
   </div>
 
-  <!-- ── Projects ── -->
+  <!-- PROJECTS -->
   <div id="projects-view" class="view">
-    <div class="card">
-      <div class="card-header">
-        <h2 class="card-title">إدارة المشاريع</h2>
-        <button class="btn btn-primary" onclick="openAddProjectModal()">➕ إضافة مشروع</button>
-      </div>
-      <div class="projects-grid" id="projects-grid"></div>
+    <div class="section-hd">
+      <div class="section-title">🏢 المشاريع</div>
+      <button class="btn btn-primary" onclick="openAddProjectModal()">➕ مشروع جديد</button>
+    </div>
+    <div class="projects-grid" id="projects-grid">
+      <div class="empty"><div class="empty-icon">🏗️</div><p>لا توجد مشاريع بعد</p></div>
     </div>
   </div>
 
-  <!-- ── Sales ── -->
+  <!-- SALES -->
   <div id="sales-view" class="view">
-    <div class="card">
-      <div class="card-header">
-        <h2 class="card-title">المبيعات والعملاء</h2>
-        <button class="btn btn-primary" onclick="openAddSaleModal()">➕ إضافة عملية بيع</button>
-      </div>
-      <div id="sales-list"></div>
+    <div class="section-hd">
+      <div class="section-title">💰 المبيعات</div>
+      <button class="btn btn-primary" onclick="openAddSaleModal()">➕ إضافة بيعة</button>
     </div>
+    <div id="sales-list"></div>
   </div>
 
-  <!-- ── Reports ── -->
+  <!-- REPORTS -->
   <div id="reports-view" class="view">
-    <div class="card">
-      <div class="card-header">
-        <h2 class="card-title">التقارير والإحصائيات</h2>
-        <button class="btn btn-secondary" onclick="generateReport()">🔄 تحديث</button>
+    <div class="section-hd">
+      <div class="section-title">📈 التقارير</div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" onclick="generateReport()">🔄 تحديث</button>
+        <button class="btn btn-pdf btn-sm" onclick="exportMonthlyPDF()">📄 PDF شهري</button>
       </div>
-      <div id="reports-content"></div>
     </div>
+    <div id="reports-content"></div>
   </div>
-
-</div>
 </main>
 
-<!-- ═══════════════════════════ MODALS ═══════════════════════ -->
+<!-- MODALS -->
 
 <!-- Add Project -->
 <div id="add-project-modal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 class="modal-title">➕ إضافة مشروع جديد</h3>
-      <button class="close-modal" onclick="closeModal('add-project-modal')">×</button>
-    </div>
+  <div class="modal-box">
+    <div class="modal-hd"><div class="modal-title">➕ مشروع جديد</div><button class="modal-close" onclick="closeModal('add-project-modal')">×</button></div>
     <form id="add-project-form" onsubmit="addProject(event)">
       <div class="form-grid">
         <div class="form-group"><label class="form-label">اسم المشروع *</label><input type="text" class="form-control" name="projectName" required></div>
         <div class="form-group"><label class="form-label">الموقع</label><input type="text" class="form-control" name="location"></div>
-        <div class="form-group"><label class="form-label">حالة المشروع *</label>
+        <div class="form-group"><label class="form-label">الحالة *</label>
           <select class="form-control" name="status" required>
             <option value="under_construction">🔨 تحت الإنشاء</option>
             <option value="completed">✅ جاهز</option>
           </select>
         </div>
       </div>
-      <div class="section-divider"><h4 class="section-title">🏢 الوحدات</h4></div>
+      <div class="form-section">🏢 الوحدات</div>
       <div class="form-grid">
         <div class="form-group"><label class="form-label">عدد الشقق *</label><input type="number" class="form-control" name="apartmentsCount" required min="0" value="0"></div>
         <div class="form-group"><label class="form-label">عدد المحلات</label><input type="number" class="form-control" name="shopsCount" value="0" min="0"></div>
       </div>
-      <div class="info-box">💡 يمكنك إضافة المصروفات بعد إنشاء المشروع من تفاصيل المشروع</div>
-      <div style="display:flex;gap:1rem;margin-top:1.5rem">
-        <button type="submit" class="btn btn-primary" style="flex:1">✅ حفظ المشروع</button>
-        <button type="button" class="btn btn-danger" onclick="closeModal('add-project-modal')" style="flex:1">❌ إلغاء</button>
+      <div class="info-box">💡 يمكنك إضافة المصروفات من تفاصيل المشروع</div>
+      <div style="display:flex;gap:.75rem;margin-top:1.5rem">
+        <button type="submit" class="btn btn-primary" style="flex:1">✅ حفظ</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal('add-project-modal')" style="flex:1">إلغاء</button>
       </div>
     </form>
   </div>
@@ -310,11 +325,8 @@ body {
 
 <!-- Edit Project -->
 <div id="edit-project-modal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 class="modal-title">✏️ تعديل المشروع</h3>
-      <button class="close-modal" onclick="closeModal('edit-project-modal')">×</button>
-    </div>
+  <div class="modal-box">
+    <div class="modal-hd"><div class="modal-title">✏️ تعديل المشروع</div><button class="modal-close" onclick="closeModal('edit-project-modal')">×</button></div>
     <form id="edit-project-form" onsubmit="updateProject(event)">
       <input type="hidden" name="projectId" id="edit-project-id">
       <div class="form-grid">
@@ -326,14 +338,12 @@ body {
             <option value="completed">✅ جاهز</option>
           </select>
         </div>
-      </div>
-      <div class="form-grid">
         <div class="form-group"><label class="form-label">عدد الشقق</label><input type="number" class="form-control" name="apartmentsCount" id="edit-project-apartments" min="0"></div>
         <div class="form-group"><label class="form-label">عدد المحلات</label><input type="number" class="form-control" name="shopsCount" id="edit-project-shops" min="0"></div>
       </div>
-      <div style="display:flex;gap:1rem;margin-top:1.5rem">
-        <button type="submit" class="btn btn-primary" style="flex:1">✅ حفظ التعديلات</button>
-        <button type="button" class="btn btn-danger" onclick="closeModal('edit-project-modal')" style="flex:1">❌ إلغاء</button>
+      <div style="display:flex;gap:.75rem;margin-top:1.5rem">
+        <button type="submit" class="btn btn-primary" style="flex:1">✅ حفظ</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal('edit-project-modal')" style="flex:1">إلغاء</button>
       </div>
     </form>
   </div>
@@ -341,49 +351,42 @@ body {
 
 <!-- Project Details -->
 <div id="project-details-modal" class="modal">
-  <div class="modal-content" style="max-width:1100px">
-    <div class="modal-header">
-      <h3 class="modal-title" id="project-details-title">تفاصيل المشروع</h3>
-      <button class="close-modal" onclick="closeModal('project-details-modal')">×</button>
-    </div>
+  <div class="modal-box" style="max-width:1100px">
+    <div class="modal-hd"><div class="modal-title" id="project-details-title">تفاصيل المشروع</div><button class="modal-close" onclick="closeModal('project-details-modal')">×</button></div>
     <div id="project-details-content"></div>
   </div>
 </div>
 
 <!-- Add Expense -->
 <div id="add-expense-modal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 class="modal-title">➕ إضافة مصروف</h3>
-      <button class="close-modal" onclick="closeModal('add-expense-modal')">×</button>
-    </div>
+  <div class="modal-box">
+    <div class="modal-hd"><div class="modal-title">➕ إضافة مصروف</div><button class="modal-close" onclick="closeModal('add-expense-modal')">×</button></div>
     <form id="add-expense-form" onsubmit="addExpense(event)">
       <input type="hidden" name="projectId" id="expense-project-id">
       <div class="form-grid">
         <div class="form-group"><label class="form-label">التاريخ *</label><input type="date" class="form-control" name="date" required></div>
         <div class="form-group"><label class="form-label">الفئة *</label>
           <select class="form-control" name="category" id="expense-category-select" required onchange="toggleCustomCategory()">
-            <option value="">اختر الفئة</option>
+            <option value="">اختر</option>
             <option value="land">🏗️ أرض</option>
             <option value="contractor">👷 مقاول</option>
             <option value="engineer">👨‍💼 مهندس</option>
             <option value="labor">🔨 صنايعية وعمال</option>
-            <option value="custom">➕ فئة مخصصة</option>
+            <option value="custom">➕ مخصص</option>
           </select>
         </div>
       </div>
       <div class="form-group" id="custom-category-group" style="display:none;margin-bottom:1rem">
-        <label class="form-label">اسم الفئة المخصصة *</label>
-        <input type="text" class="form-control" name="customCategory" placeholder="مثال: رخص، كهرباء...">
+        <label class="form-label">اسم الفئة *</label><input type="text" class="form-control" name="customCategory">
       </div>
       <div class="form-grid">
         <div class="form-group"><label class="form-label">المبلغ (ج.م) *</label><input type="number" class="form-control" name="amount" required min="0" step="0.01"></div>
-        <div class="form-group"><label class="form-label">المستلم/الجهة</label><input type="text" class="form-control" name="recipient" placeholder="اسم الشخص أو الشركة"></div>
+        <div class="form-group"><label class="form-label">المستلم</label><input type="text" class="form-control" name="recipient"></div>
       </div>
-      <div class="form-group"><label class="form-label">ملاحظات</label><textarea class="form-control" name="notes" rows="2" placeholder="تفاصيل إضافية..."></textarea></div>
-      <div style="display:flex;gap:1rem;margin-top:1.5rem">
-        <button type="submit" class="btn btn-primary" style="flex:1">✅ حفظ المصروف</button>
-        <button type="button" class="btn btn-danger" onclick="closeModal('add-expense-modal')" style="flex:1">❌ إلغاء</button>
+      <div class="form-group"><label class="form-label">ملاحظات</label><textarea class="form-control" name="notes" rows="2"></textarea></div>
+      <div style="display:flex;gap:.75rem;margin-top:1.5rem">
+        <button type="submit" class="btn btn-primary" style="flex:1">✅ حفظ</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal('add-expense-modal')" style="flex:1">إلغاء</button>
       </div>
     </form>
   </div>
@@ -391,11 +394,8 @@ body {
 
 <!-- Edit Expense -->
 <div id="edit-expense-modal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 class="modal-title">✏️ تعديل المصروف</h3>
-      <button class="close-modal" onclick="closeModal('edit-expense-modal')">×</button>
-    </div>
+  <div class="modal-box">
+    <div class="modal-hd"><div class="modal-title">✏️ تعديل مصروف</div><button class="modal-close" onclick="closeModal('edit-expense-modal')">×</button></div>
     <form id="edit-expense-form" onsubmit="updateExpense(event)">
       <input type="hidden" name="projectId" id="edit-expense-project-id">
       <input type="hidden" name="expenseId" id="edit-expense-id">
@@ -403,114 +403,74 @@ body {
         <div class="form-group"><label class="form-label">التاريخ *</label><input type="date" class="form-control" name="date" id="edit-expense-date" required></div>
         <div class="form-group"><label class="form-label">الفئة *</label>
           <select class="form-control" name="category" id="edit-expense-category" required onchange="toggleEditCustomCategory()">
-            <option value="">اختر الفئة</option>
             <option value="land">🏗️ أرض</option>
             <option value="contractor">👷 مقاول</option>
             <option value="engineer">👨‍💼 مهندس</option>
             <option value="labor">🔨 صنايعية وعمال</option>
-            <option value="custom">➕ فئة مخصصة</option>
+            <option value="custom">➕ مخصص</option>
           </select>
         </div>
       </div>
       <div class="form-group" id="edit-custom-category-group" style="display:none;margin-bottom:1rem">
-        <label class="form-label">اسم الفئة المخصصة *</label>
-        <input type="text" class="form-control" name="customCategory" id="edit-expense-custom-category">
+        <label class="form-label">اسم الفئة *</label><input type="text" class="form-control" name="customCategory" id="edit-expense-custom-category">
       </div>
       <div class="form-grid">
         <div class="form-group"><label class="form-label">المبلغ (ج.م) *</label><input type="number" class="form-control" name="amount" id="edit-expense-amount" required min="0" step="0.01"></div>
-        <div class="form-group"><label class="form-label">المستلم/الجهة</label><input type="text" class="form-control" name="recipient" id="edit-expense-recipient"></div>
+        <div class="form-group"><label class="form-label">المستلم</label><input type="text" class="form-control" name="recipient" id="edit-expense-recipient"></div>
       </div>
       <div class="form-group"><label class="form-label">ملاحظات</label><textarea class="form-control" name="notes" id="edit-expense-notes" rows="2"></textarea></div>
-      <div style="display:flex;gap:1rem;margin-top:1.5rem">
-        <button type="submit" class="btn btn-primary" style="flex:1">✅ حفظ التعديلات</button>
-        <button type="button" class="btn btn-danger" onclick="closeModal('edit-expense-modal')" style="flex:1">❌ إلغاء</button>
+      <div style="display:flex;gap:.75rem;margin-top:1.5rem">
+        <button type="submit" class="btn btn-primary" style="flex:1">✅ حفظ</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal('edit-expense-modal')" style="flex:1">إلغاء</button>
       </div>
     </form>
   </div>
 </div>
 
-<!-- ══════════ ADD SALE MODAL (NEW FLEXIBLE INSTALLMENTS) ══════════ -->
+<!-- Add Sale -->
 <div id="add-sale-modal" class="modal">
-  <div class="modal-content" style="max-width:960px">
-    <div class="modal-header">
-      <h3 class="modal-title">➕ إضافة عملية بيع</h3>
-      <button class="close-modal" onclick="closeModal('add-sale-modal')">×</button>
-    </div>
+  <div class="modal-box" style="max-width:960px">
+    <div class="modal-hd"><div class="modal-title">➕ إضافة عملية بيع</div><button class="modal-close" onclick="closeModal('add-sale-modal')">×</button></div>
     <form id="add-sale-form" onsubmit="addSale(event)">
-      <div class="section-divider"><h4 class="section-title">🏢 بيانات الوحدة</h4></div>
+      <div class="form-section">🏢 بيانات الوحدة</div>
       <div class="form-grid">
-        <div class="form-group">
-          <label class="form-label">المشروع *</label>
-          <select class="form-control" name="projectId" id="sale-project-select" required onchange="updateUnitTypes()">
-            <option value="">اختر المشروع</option>
-          </select>
+        <div class="form-group"><label class="form-label">المشروع *</label>
+          <select class="form-control" name="projectId" id="sale-project-select" required onchange="updateUnitTypes()"><option value="">اختر</option></select>
         </div>
-        <div class="form-group">
-          <label class="form-label">نوع الوحدة *</label>
-          <select class="form-control" name="unitType" required>
-            <option value="">اختر النوع</option>
-            <option value="apartment">🏠 شقة</option>
-            <option value="shop">🏪 محل</option>
-          </select>
+        <div class="form-group"><label class="form-label">نوع الوحدة *</label>
+          <select class="form-control" name="unitType" required><option value="">اختر</option><option value="apartment">🏠 شقة</option><option value="shop">🏪 محل</option></select>
         </div>
-        <div class="form-group">
-          <label class="form-label">رقم الوحدة</label>
-          <input type="text" class="form-control" name="unitNumber" placeholder="مثال: 101">
-        </div>
-        <div class="form-group">
-          <label class="form-label">تاريخ البيع *</label>
-          <input type="date" class="form-control" name="saleDate" required>
-        </div>
+        <div class="form-group"><label class="form-label">رقم الوحدة</label><input type="text" class="form-control" name="unitNumber"></div>
+        <div class="form-group"><label class="form-label">تاريخ البيع *</label><input type="date" class="form-control" name="saleDate" required></div>
       </div>
-
-      <div class="section-divider"><h4 class="section-title">👤 بيانات العميل</h4></div>
+      <div class="form-section">👤 بيانات العميل</div>
       <div class="form-grid">
         <div class="form-group"><label class="form-label">اسم العميل *</label><input type="text" class="form-control" name="customerName" required></div>
-        <div class="form-group"><label class="form-label">رقم الهاتف</label><input type="tel" class="form-control" name="customerPhone" placeholder="01xxxxxxxxx"></div>
+        <div class="form-group"><label class="form-label">رقم الهاتف</label><input type="tel" class="form-control" name="customerPhone"></div>
       </div>
-
-      <div class="section-divider"><h4 class="section-title">💰 بيانات المبلغ والدفع</h4></div>
+      <div class="form-section">💰 بيانات الدفع</div>
       <div class="form-grid">
         <div class="form-group"><label class="form-label">إجمالي السعر (ج.م) *</label><input type="number" class="form-control" name="totalPrice" required min="0" step="0.01" oninput="updateInstallmentsSummary()"></div>
         <div class="form-group"><label class="form-label">طريقة الدفع *</label>
-          <select class="form-control" name="paymentType" required onchange="toggleInstallmentFields()">
-            <option value="cash">💵 كاش</option>
-            <option value="installment">📅 أقساط</option>
-          </select>
+          <select class="form-control" name="paymentType" required onchange="toggleInstallmentFields()"><option value="cash">💵 كاش</option><option value="installment">📅 أقساط</option></select>
         </div>
       </div>
-
-      <!-- ── Installment fields (NEW) ── -->
       <div id="installment-fields" style="display:none">
         <div class="form-grid">
-          <div class="form-group">
-            <label class="form-label">المقدم (ج.م)</label>
-            <input type="number" class="form-control" name="downPayment" min="0" step="0.01" value="0" oninput="updateInstallmentsSummary()">
-          </div>
+          <div class="form-group"><label class="form-label">المقدم (ج.م)</label><input type="number" class="form-control" name="downPayment" min="0" step="0.01" value="0" oninput="updateInstallmentsSummary()"></div>
         </div>
-
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;flex-wrap:wrap;gap:0.5rem">
-          <div class="section-title">📋 جدول الأقساط</div>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="addInstallmentRow()">➕ إضافة قسط</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem">
+          <div class="form-section" style="margin:0;border:none;padding:0">📋 جدول الأقساط</div>
+          <button type="button" class="btn btn-gold btn-sm" onclick="addInstallmentRow()">➕ إضافة قسط</button>
         </div>
-
         <div id="installment-rows-container"></div>
-
         <div id="installments-sum-display"></div>
-
-        <div class="info-box" style="margin-top:0.75rem">
-          💡 حدد اسم القسط (مثلاً: قسط يناير)، المبلغ، وتاريخ الاستحقاق لكل قسط بشكل مستقل
-        </div>
+        <div class="info-box">💡 حدد اسم ومبلغ وتاريخ كل قسط بشكل مستقل</div>
       </div>
-
-      <div class="form-group" style="margin-top:1rem">
-        <label class="form-label">ملاحظات</label>
-        <textarea class="form-control" name="notes" rows="2" placeholder="ملاحظات إضافية..."></textarea>
-      </div>
-
-      <div style="display:flex;gap:1rem;margin-top:1.5rem">
+      <div class="form-group" style="margin-top:1rem"><label class="form-label">ملاحظات</label><textarea class="form-control" name="notes" rows="2"></textarea></div>
+      <div style="display:flex;gap:.75rem;margin-top:1.5rem">
         <button type="submit" class="btn btn-primary" style="flex:1">✅ حفظ عملية البيع</button>
-        <button type="button" class="btn btn-danger" onclick="closeModal('add-sale-modal')" style="flex:1">❌ إلغاء</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal('add-sale-modal')" style="flex:1">إلغاء</button>
       </div>
     </form>
   </div>
@@ -518,25 +478,13 @@ body {
 
 <!-- Edit Sale -->
 <div id="edit-sale-modal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 class="modal-title">✏️ تعديل عملية البيع</h3>
-      <button class="close-modal" onclick="closeModal('edit-sale-modal')">×</button>
-    </div>
+  <div class="modal-box">
+    <div class="modal-hd"><div class="modal-title">✏️ تعديل عملية البيع</div><button class="modal-close" onclick="closeModal('edit-sale-modal')">×</button></div>
     <form id="edit-sale-form" onsubmit="updateSale(event)">
       <input type="hidden" name="saleId" id="edit-sale-id">
       <div class="form-grid">
-        <div class="form-group"><label class="form-label">المشروع</label>
-          <select class="form-control" name="projectId" id="edit-sale-project" required>
-            <option value="">اختر المشروع</option>
-          </select>
-        </div>
-        <div class="form-group"><label class="form-label">نوع الوحدة</label>
-          <select class="form-control" name="unitType" id="edit-sale-unit-type" required>
-            <option value="apartment">🏠 شقة</option>
-            <option value="shop">🏪 محل</option>
-          </select>
-        </div>
+        <div class="form-group"><label class="form-label">المشروع</label><select class="form-control" name="projectId" id="edit-sale-project" required><option value="">اختر</option></select></div>
+        <div class="form-group"><label class="form-label">نوع الوحدة</label><select class="form-control" name="unitType" id="edit-sale-unit-type" required><option value="apartment">🏠 شقة</option><option value="shop">🏪 محل</option></select></div>
         <div class="form-group"><label class="form-label">رقم الوحدة</label><input type="text" class="form-control" name="unitNumber" id="edit-sale-unit-number"></div>
         <div class="form-group"><label class="form-label">تاريخ البيع</label><input type="date" class="form-control" name="saleDate" id="edit-sale-date" required></div>
         <div class="form-group"><label class="form-label">اسم العميل *</label><input type="text" class="form-control" name="customerName" id="edit-sale-customer-name" required></div>
@@ -544,47 +492,35 @@ body {
         <div class="form-group"><label class="form-label">إجمالي السعر (ج.م)</label><input type="number" class="form-control" name="totalPrice" id="edit-sale-total-price" required min="0" step="0.01"></div>
       </div>
       <div class="form-group"><label class="form-label">ملاحظات</label><textarea class="form-control" name="notes" id="edit-sale-notes" rows="2"></textarea></div>
-      <div class="info-box">ℹ️ لتعديل الأقساط، استخدم زر "الأقساط" في قائمة المبيعات</div>
-      <div style="display:flex;gap:1rem;margin-top:1.5rem">
-        <button type="submit" class="btn btn-primary" style="flex:1">✅ حفظ التعديلات</button>
-        <button type="button" class="btn btn-danger" onclick="closeModal('edit-sale-modal')" style="flex:1">❌ إلغاء</button>
+      <div class="info-box">ℹ️ لتعديل الأقساط استخدم زر "الأقساط" من قائمة المبيعات</div>
+      <div style="display:flex;gap:.75rem;margin-top:1.5rem">
+        <button type="submit" class="btn btn-primary" style="flex:1">✅ حفظ</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal('edit-sale-modal')" style="flex:1">إلغاء</button>
       </div>
     </form>
   </div>
 </div>
 
-<!-- ══════════ INSTALLMENTS MODAL (NEW) ══════════ -->
+<!-- Installments Modal -->
 <div id="installments-modal" class="modal">
-  <div class="modal-content" style="max-width:800px">
-    <div class="modal-header">
-      <h3 class="modal-title" id="installments-modal-title">أقساط العميل</h3>
-      <button class="close-modal" onclick="closeModal('installments-modal')">×</button>
-    </div>
+  <div class="modal-box" style="max-width:800px">
+    <div class="modal-hd"><div class="modal-title" id="installments-modal-title">أقساط العميل</div><button class="modal-close" onclick="closeModal('installments-modal')">×</button></div>
     <div id="installments-modal-content"></div>
   </div>
 </div>
 
-<!-- ══════════ SALE FILES MODAL ══════════ -->
+<!-- Sale Files Modal -->
 <div id="sale-files-modal" class="modal">
-  <div class="modal-content" style="max-width:700px">
-    <div class="modal-header">
-      <h3 class="modal-title" id="sale-files-modal-title">📎 ملفات العقد</h3>
-      <button class="close-modal" onclick="closeModal('sale-files-modal')">×</button>
-    </div>
+  <div class="modal-box" style="max-width:700px">
+    <div class="modal-hd"><div class="modal-title" id="sale-files-modal-title">📎 ملفات العقد</div><button class="modal-close" onclick="closeModal('sale-files-modal')">×</button></div>
     <input type="hidden" id="sale-files-sale-id">
-
-    <!-- زر الرفع -->
     <div style="margin-bottom:1.5rem">
-      <label class="btn btn-primary" style="cursor:pointer;display:inline-flex">
-        📤 رفع ملف جديد (صورة أو PDF)
+      <label class="btn btn-primary" style="cursor:pointer">
+        📤 رفع ملف (صورة أو PDF)
         <input type="file" accept="image/*,.pdf" style="display:none" onchange="uploadSaleFile(this)">
       </label>
-      <div style="font-size:0.85rem;color:var(--text-secondary);margin-top:0.5rem">
-        الأنواع المدعومة: JPG, PNG, PDF — الحجم الأقصى: 10MB
-      </div>
+      <div style="font-size:.82rem;color:var(--text-muted);margin-top:.5rem">JPG, PNG, PDF — حجم أقصى 10MB</div>
     </div>
-
-    <!-- قائمة الملفات -->
     <div id="sale-files-list"></div>
   </div>
 </div>
