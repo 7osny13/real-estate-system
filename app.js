@@ -249,6 +249,102 @@ const DB = {
     const { error } = await this.supabase
       .from('sales').update({ payments, updated_at: new Date().toISOString() }).eq('id', saleId);
     return !error;
+  },
+
+  // ══════════════════════════════════════════════════════════
+  // STORAGE — رفع وإدارة الملفات
+  // ══════════════════════════════════════════════════════════
+  BUCKET: 'real-estate-files',
+
+  // رفع ملف — يرجع public URL أو null
+  async uploadFile(file, folder) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    const allowed = ['jpg', 'jpeg', 'png', 'pdf'];
+    if (!allowed.includes(ext)) {
+      showToast('نوع الملف غير مدعوم. الأنواع المسموحة: JPG, PNG, PDF', 'warning');
+      return null;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('حجم الملف أكبر من 10MB', 'warning');
+      return null;
+    }
+
+    const fileName = `${folder}/${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${ext}`;
+    const { data, error } = await this.supabase.storage
+      .from(this.BUCKET)
+      .upload(fileName, file, { cacheControl: '3600', upsert: false });
+
+    if (error) { console.error('Upload error:', error); showToast('خطأ في رفع الملف', 'error'); return null; }
+
+    const { data: urlData } = this.supabase.storage.from(this.BUCKET).getPublicUrl(data.path);
+    return { path: data.path, url: urlData.publicUrl, name: file.name, type: ext };
+  },
+
+  // حذف ملف من Storage
+  async deleteFile(filePath) {
+    const { error } = await this.supabase.storage.from(this.BUCKET).remove([filePath]);
+    if (error) { console.error('Delete error:', error); return false; }
+    return true;
+  },
+
+  // ── رفع صورة/PDF للعقد (على مستوى عملية البيع) ──────────
+  async addSaleFile(saleId, fileInfo) {
+    const { data: row, error: fetchErr } = await this.supabase
+      .from('sales').select('notes').eq('id', saleId).single();
+    if (fetchErr) return false;
+
+    // نخزن الملفات في عمود جديد — نستخدم notes كـ fallback لو مفيش عمود
+    // الأفضل: نعمل عمود files في Supabase — هنتعامل معاه كـ JSONB في notes مؤقتاً
+    // لكن الحل الصحيح: عمود منفصل — راجع تعليمات إضافة العمود أدناه
+    const { data: saleData, error: sErr } = await this.supabase
+      .from('sales').select('files').eq('id', saleId).single();
+
+    const files = (saleData?.files || []);
+    files.push({ ...fileInfo, uploadedAt: new Date().toISOString() });
+
+    const { error } = await this.supabase
+      .from('sales').update({ files, updated_at: new Date().toISOString() }).eq('id', saleId);
+    if (error) { console.error(error); return false; }
+    return true;
+  },
+
+  async deleteSaleFile(saleId, filePath) {
+    const { data: saleData } = await this.supabase
+      .from('sales').select('files').eq('id', saleId).single();
+    const files = (saleData?.files || []).filter(f => f.path !== filePath);
+    await this.supabase.from('sales').update({ files, updated_at: new Date().toISOString() }).eq('id', saleId);
+    await this.deleteFile(filePath);
+  },
+
+  // ── رفع إيصال على قسط معين ───────────────────────────────
+  async addInstallmentFile(saleId, installmentIndex, fileInfo) {
+    const { data: saleData, error: fetchErr } = await this.supabase
+      .from('sales').select('payments').eq('id', saleId).single();
+    if (fetchErr) return false;
+
+    const payments = JSON.parse(JSON.stringify(saleData.payments || []));
+    const inst = payments[installmentIndex];
+    if (!inst) return false;
+
+    inst.files = inst.files || [];
+    inst.files.push({ ...fileInfo, uploadedAt: new Date().toISOString() });
+
+    const { error } = await this.supabase
+      .from('sales').update({ payments, updated_at: new Date().toISOString() }).eq('id', saleId);
+    if (error) { console.error(error); return false; }
+    return true;
+  },
+
+  async deleteInstallmentFile(saleId, installmentIndex, filePath) {
+    const { data: saleData } = await this.supabase
+      .from('sales').select('payments').eq('id', saleId).single();
+    const payments = JSON.parse(JSON.stringify(saleData.payments || []));
+    const inst = payments[installmentIndex];
+    if (inst) {
+      inst.files = (inst.files || []).filter(f => f.path !== filePath);
+      await this.supabase.from('sales').update({ payments, updated_at: new Date().toISOString() }).eq('id', saleId);
+    }
+    await this.deleteFile(filePath);
   }
 };
 
@@ -703,6 +799,7 @@ function renderSales() {
         </div>
         <div class="action-buttons" style="margin-top:1rem">
           <button class="btn btn-primary btn-sm" onclick="showSaleInstallments('${sale.id}')">📋 الأقساط (${sale.payments?.length || 0})</button>
+          <button class="btn btn-warning btn-sm" onclick="openSaleFilesModal('${sale.id}')">📎 الملفات (${(sale.files||[]).length})</button>
           <button class="btn btn-secondary btn-sm" onclick="openEditSaleModal('${sale.id}')">✏️ تعديل</button>
           <button class="btn btn-danger btn-sm" onclick="deleteSale('${sale.id}')">🗑️ حذف</button>
         </div>
@@ -793,6 +890,26 @@ function showSaleInstallments(saleId) {
                 💰 دفع المتبقي كاملاً (${formatCurrency(inst.remainingAmount)} ج.م)
               </button>` : ''}
           </div>` : ''}
+
+        <!-- إيصالات القسط -->
+        <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px dashed var(--border)">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+            <div style="font-size:0.85rem;font-weight:600;color:var(--text-secondary)">📎 إيصالات (${(inst.files||[]).length})</div>
+            <label class="btn btn-xs" style="background:var(--bg-main);cursor:pointer;color:var(--primary)">
+              📤 رفع إيصال
+              <input type="file" accept="image/*,.pdf" style="display:none"
+                onchange="uploadInstallmentFile(this, '${saleId}', ${idx})">
+            </label>
+          </div>
+          ${(inst.files||[]).length > 0 ? (inst.files||[]).map(f => `
+            <div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg-main);padding:0.4rem 0.6rem;border-radius:8px;margin-bottom:0.3rem;font-size:0.85rem">
+              <span>${f.type === 'pdf' ? '📄' : '🖼️'} ${f.name}</span>
+              <div style="display:flex;gap:0.3rem">
+                <a href="${f.url}" target="_blank" class="btn btn-xs btn-secondary">👁️</a>
+                <button class="btn btn-xs btn-danger" onclick="deleteInstallmentFile('${saleId}', ${idx}, '${f.path}')">🗑️</button>
+              </div>
+            </div>`).join('') : ''}
+        </div>
       </div>`;
   }).join('');
 
@@ -1488,4 +1605,105 @@ function getCategoryName(category, customCategory) {
 
 function closeModal(id) {
   document.getElementById(id)?.classList.remove('active');
+}
+
+// ============================================================
+// FILE UPLOAD UI
+// ============================================================
+
+// ── رفع ملف عقد على عملية البيع ──────────────────────────
+function openSaleFilesModal(saleId) {
+  const sale = sales.find(s => s.id === saleId);
+  if (!sale) return;
+
+  const modal = document.getElementById('sale-files-modal');
+  document.getElementById('sale-files-modal-title').textContent = `ملفات — ${sale.customerName}`;
+  document.getElementById('sale-files-sale-id').value = saleId;
+  renderSaleFilesList(sale);
+  modal.classList.add('active');
+}
+
+function renderSaleFilesList(sale) {
+  const container = document.getElementById('sale-files-list');
+  const files = sale.files || [];
+
+  if (files.length === 0) {
+    container.innerHTML = `<div class="empty-state" style="padding:2rem"><div class="empty-state-icon">📄</div><p>لا توجد ملفات مرفوعة بعد</p></div>`;
+    return;
+  }
+
+  container.innerHTML = files.map(f => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem;background:var(--bg-main);border-radius:10px;margin-bottom:0.5rem">
+      <div style="display:flex;align-items:center;gap:0.75rem">
+        <span style="font-size:1.5rem">${f.type === 'pdf' ? '📄' : '🖼️'}</span>
+        <div>
+          <div style="font-weight:600;color:var(--primary);font-size:0.9rem">${f.name}</div>
+          <div style="font-size:0.8rem;color:var(--text-secondary)">${formatDate(f.uploadedAt)}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:0.5rem">
+        <a href="${f.url}" target="_blank" class="btn btn-secondary btn-xs">👁️ عرض</a>
+        <button class="btn btn-danger btn-xs" onclick="deleteSaleFile('${sale.id}', '${f.path}')">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+
+async function uploadSaleFile(input) {
+  const saleId = document.getElementById('sale-files-sale-id').value;
+  const file = input.files[0];
+  if (!file) return;
+
+  showLoading();
+  const fileInfo = await DB.uploadFile(file, `contracts/${saleId}`);
+  if (fileInfo) {
+    const ok = await DB.addSaleFile(saleId, fileInfo);
+    if (ok) {
+      await loadData();
+      const sale = sales.find(s => s.id === saleId);
+      renderSaleFilesList(sale);
+      showToast('تم رفع الملف بنجاح');
+    }
+  }
+  input.value = '';
+  hideLoading();
+}
+
+async function deleteSaleFile(saleId, filePath) {
+  if (!confirm('هل تريد حذف هذا الملف؟')) return;
+  showLoading();
+  await DB.deleteSaleFile(saleId, filePath);
+  await loadData();
+  const sale = sales.find(s => s.id === saleId);
+  renderSaleFilesList(sale);
+  showToast('تم حذف الملف');
+  hideLoading();
+}
+
+// ── رفع إيصال على قسط ────────────────────────────────────
+async function uploadInstallmentFile(input, saleId, installmentIndex) {
+  const file = input.files[0];
+  if (!file) return;
+
+  showLoading();
+  const fileInfo = await DB.uploadFile(file, `receipts/${saleId}`);
+  if (fileInfo) {
+    const ok = await DB.addInstallmentFile(saleId, installmentIndex, fileInfo);
+    if (ok) {
+      await loadData();
+      showToast('تم رفع الإيصال بنجاح');
+      showSaleInstallments(saleId); // أعد رسم modal الأقساط
+    }
+  }
+  input.value = '';
+  hideLoading();
+}
+
+async function deleteInstallmentFile(saleId, installmentIndex, filePath) {
+  if (!confirm('هل تريد حذف هذا الإيصال؟')) return;
+  showLoading();
+  await DB.deleteInstallmentFile(saleId, installmentIndex, filePath);
+  await loadData();
+  showToast('تم حذف الإيصال');
+  showSaleInstallments(saleId);
+  hideLoading();
 }
