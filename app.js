@@ -289,22 +289,16 @@ const DB = {
 
   // ── رفع صورة/PDF للعقد (على مستوى عملية البيع) ──────────
   async addSaleFile(saleId, fileInfo) {
-    const { data: row, error: fetchErr } = await this.supabase
-      .from('sales').select('notes').eq('id', saleId).single();
-    if (fetchErr) return false;
-
-    // نخزن الملفات في عمود جديد — نستخدم notes كـ fallback لو مفيش عمود
-    // الأفضل: نعمل عمود files في Supabase — هنتعامل معاه كـ JSONB في notes مؤقتاً
-    // لكن الحل الصحيح: عمود منفصل — راجع تعليمات إضافة العمود أدناه
-    const { data: saleData, error: sErr } = await this.supabase
+    const { data: saleData, error: fetchErr } = await this.supabase
       .from('sales').select('files').eq('id', saleId).single();
+    if (fetchErr) { console.error('addSaleFile fetch error:', fetchErr); return false; }
 
-    const files = (saleData?.files || []);
+    const files = Array.isArray(saleData?.files) ? [...saleData.files] : [];
     files.push({ ...fileInfo, uploadedAt: new Date().toISOString() });
 
     const { error } = await this.supabase
       .from('sales').update({ files, updated_at: new Date().toISOString() }).eq('id', saleId);
-    if (error) { console.error(error); return false; }
+    if (error) { console.error('addSaleFile update error:', error); return false; }
     return true;
   },
 
@@ -392,6 +386,7 @@ function mapSale(s) {
     installmentsCount: s.installments_count || 0,
     notes: s.notes,
     payments: s.payments || [],
+    files: Array.isArray(s.files) ? s.files : [],
     createdAt: s.created_at
   };
 }
@@ -1651,7 +1646,7 @@ function renderSaleFilesList(sale) {
 async function uploadSaleFile(input) {
   const saleId = document.getElementById('sale-files-sale-id').value;
   const file = input.files[0];
-  if (!file) return;
+  if (!file || !saleId) return;
 
   showLoading();
   const fileInfo = await DB.uploadFile(file, `contracts/${saleId}`);
@@ -1659,9 +1654,13 @@ async function uploadSaleFile(input) {
     const ok = await DB.addSaleFile(saleId, fileInfo);
     if (ok) {
       await loadData();
-      const sale = sales.find(s => s.id === saleId);
-      renderSaleFilesList(sale);
+      // جيب النسخة المحدثة من الـ sales array
+      const updatedSale = sales.find(s => s.id === saleId);
+      renderSaleFilesList(updatedSale);
+      renderSales(); // حدّث عداد الملفات في قائمة المبيعات
       showToast('تم رفع الملف بنجاح');
+    } else {
+      showToast('خطأ في حفظ بيانات الملف', 'error');
     }
   }
   input.value = '';
