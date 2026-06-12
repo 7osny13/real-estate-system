@@ -679,6 +679,102 @@ async function updateDashboard() {
 
   // Charts
   renderCharts(totalPaid, totalCosts);
+
+  // لوحة الأقساط القادمة
+  renderUpcomingInstallments();
+}
+
+// ============================================================
+// UPCOMING INSTALLMENTS PANEL
+// ============================================================
+function renderUpcomingInstallments() {
+  const container = document.getElementById('upcoming-installments-list');
+  if (!container) return;
+
+  const daysVal = parseInt(document.getElementById('upcoming-days-filter')?.value ?? '30');
+  const today = new Date(); today.setHours(0,0,0,0);
+  const cutoff = new Date(today);
+  if (daysVal > 0) cutoff.setDate(cutoff.getDate() + daysVal);
+
+  // جمع الأقساط
+  const items = [];
+  for (const sale of sales) {
+    const project = projects.find(p => p.id === sale.projectId);
+    (sale.payments || []).forEach((inst, idx) => {
+      if (inst.status === 'paid') return;
+      const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
+      const isOverdue = due < today;
+      const isUpcoming = daysVal === 0 ? false : (due >= today && due <= cutoff);
+      if (!isOverdue && !isUpcoming) return;
+
+      const daysLeft = Math.round((due - today) / 86400000);
+      items.push({ sale, project, inst, idx, due, isOverdue, daysLeft });
+    });
+  }
+
+  // ترتيب: المتأخرة أولاً ثم الأقرب
+  items.sort((a, b) => a.due - b.due);
+
+  if (items.length === 0) {
+    container.innerHTML = `<div class="empty" style="padding:2rem">
+      <div class="empty-icon">✅</div>
+      <p>${daysVal === 0 ? 'لا توجد أقساط متأخرة' : `لا توجد أقساط خلال ${daysVal} يوم`}</p>
+    </div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:.88rem">
+      <thead>
+        <tr style="background:var(--primary);color:#fff">
+          <th style="padding:.65rem 1rem;text-align:right">العميل</th>
+          <th style="padding:.65rem 1rem;text-align:right">المشروع</th>
+          <th style="padding:.65rem 1rem;text-align:right">القسط</th>
+          <th style="padding:.65rem 1rem;text-align:right">الاستحقاق</th>
+          <th style="padding:.65rem 1rem;text-align:right">المبلغ</th>
+          <th style="padding:.65rem 1rem;text-align:right">الحالة</th>
+          <th style="padding:.65rem 1rem;text-align:right">إجراء</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map((item, i) => {
+          const rowBg = item.isOverdue
+            ? (i % 2 === 0 ? '#fff0ee' : '#ffe8e5')
+            : (i % 2 === 0 ? '#fff' : 'var(--bg-subtle)');
+          const daysLabel = item.isOverdue
+            ? `<span class="badge badge-red">متأخر ${Math.abs(item.daysLeft)} يوم</span>`
+            : item.daysLeft === 0
+            ? `<span class="badge badge-orange">اليوم!</span>`
+            : item.daysLeft <= 3
+            ? `<span class="badge badge-orange">بعد ${item.daysLeft} أيام</span>`
+            : `<span class="badge badge-blue">بعد ${item.daysLeft} يوم</span>`;
+          const statusLabel = item.inst.status === 'partial'
+            ? `<span class="badge badge-orange">جزئي<br><small>متبقي: ${formatCurrency(item.inst.remainingAmount)} ج.م</small></span>`
+            : `<span class="badge badge-red">لم يُدفع</span>`;
+
+          return `<tr style="background:${rowBg};border-bottom:1px solid var(--border)">
+            <td style="padding:.65rem 1rem;font-weight:700">${item.sale.customerName}
+              ${item.sale.notesCrm ? `<div style="font-size:.75rem;color:#7a5c0a;font-weight:400">📌 ${item.sale.notesCrm}</div>` : ''}
+            </td>
+            <td style="padding:.65rem 1rem;color:var(--text-muted)">${item.project?.projectName || '—'}</td>
+            <td style="padding:.65rem 1rem">${item.inst.label || '—'}</td>
+            <td style="padding:.65rem 1rem">${formatDate(item.inst.dueDate)}<br>${daysLabel}</td>
+            <td style="padding:.65rem 1rem;font-weight:700;color:var(--gold)">${formatCurrency(item.inst.remainingAmount || item.inst.totalAmount)} ج.م</td>
+            <td style="padding:.65rem 1rem">${statusLabel}</td>
+            <td style="padding:.65rem 1rem">
+              <button class="btn btn-primary btn-xs" onclick="showSaleInstallments('${item.sale.id}');showView('sales',document.querySelectorAll('.nav-btn')[2])">
+                📋 فتح
+              </button>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    <div style="font-size:.82rem;color:var(--text-muted);margin-top:.75rem;text-align:left">
+      إجمالي: <strong>${items.length} قسط</strong> —
+      متأخرة: <strong style="color:var(--danger)">${items.filter(i => i.isOverdue).length}</strong> —
+      قادمة: <strong style="color:var(--info)">${items.filter(i => !i.isOverdue).length}</strong>
+    </div>`;
 }
 
 // ============================================================
@@ -811,6 +907,7 @@ function renderSales(filteredList = null) {
           <button class="btn btn-primary btn-sm" onclick="showSaleInstallments('${sale.id}')">📋 الأقساط (${sale.payments?.length || 0})</button>
           <button class="btn btn-warning btn-sm" onclick="openSaleFilesModal('${sale.id}')">📎 ملفات (${(sale.files||[]).length})</button>
           <button class="btn btn-pdf btn-sm" onclick="exportClientPDF('${sale.id}')">📄 كشف حساب</button>
+          <button class="btn btn-success btn-sm" onclick="printClientPage('${sale.id}')">🖨️ طباعة بيانات</button>
           <button class="btn btn-ghost btn-sm" onclick="openEditSaleModal('${sale.id}')">✏️ تعديل</button>
           <button class="btn btn-danger btn-sm" onclick="deleteSale('${sale.id}')">🗑️</button>
         </div>
@@ -2031,6 +2128,141 @@ async function exportMonthlyPDF() {
 
   openPrintWindow(html, `التقرير-الشهري-${monthStr}`);
   showToast('جاري فتح نافذة الطباعة...', 'info');
+}
+
+// ============================================================
+// صفحة العميل للطباعة — A4 بضغطة واحدة
+// ============================================================
+function printClientPage(saleId) {
+  const sale = sales.find(s => s.id === saleId);
+  if (!sale) return;
+  const project = projects.find(p => p.id === sale.projectId);
+  const totalPaid = getTotalPaid(sale);
+  const remaining = sale.totalPrice - totalPaid;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const dateStr = new Date().toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
+
+  // أقرب قسط قادم
+  const nextInst = (sale.payments || [])
+    .filter(i => i.status !== 'paid')
+    .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))[0];
+
+  const instRows = (sale.payments || []).map((inst, i) => {
+    const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
+    const isOverdue = inst.status !== 'paid' && due < today;
+    const statusAr = inst.status === 'paid' ? '✓ مدفوع'
+      : inst.status === 'partial' ? '⏳ جزئي'
+      : isOverdue ? '! متأخر' : '◷ قادم';
+    const color = inst.status === 'paid' ? '#1e7e4a'
+      : isOverdue ? '#c0392b' : inst.status === 'partial' ? '#e67e22' : '#2471a3';
+    return `<tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;text-align:center">${i+1}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6">${inst.label || `القسط ${i+1}`}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700">${formatCurrency(inst.totalAmount)} ج.م</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6">${formatDate(inst.dueDate)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700;color:#1e7e4a">${formatCurrency(inst.paidAmount || 0)} ج.م</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700;color:${color}">${statusAr}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@700;900&display=swap');
+      * { margin:0; padding:0; box-sizing:border-box; }
+      body { font-family:'Cairo',sans-serif; direction:rtl; color:#1c1c1a; padding:24px; font-size:13px; background:#fff; }
+      .header { background:#0f3d2e; color:#fff; padding:16px 20px; border-radius:10px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; }
+      .header h1 { font-family:'Tajawal',sans-serif; font-size:20px; font-weight:900; }
+      .header .sub { font-size:11px; opacity:.8; margin-top:3px; }
+      .logo-box { background:rgba(255,255,255,.15); border-radius:8px; padding:8px 14px; font-size:12px; font-weight:700; text-align:center; }
+      .info-section { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+      .info-card { background:#f7f5f0; border-radius:8px; padding:12px 16px; }
+      .info-card h3 { font-family:'Tajawal',sans-serif; font-size:13px; font-weight:700; color:#0f3d2e; border-bottom:2px solid #c9982a; padding-bottom:6px; margin-bottom:10px; }
+      .info-row { display:flex; justify-content:space-between; padding:4px 0; font-size:12px; }
+      .info-row .lbl { color:#6b6860; font-weight:600; }
+      .info-row .val { font-weight:700; color:#1c1c1a; }
+      .totals { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:16px; }
+      .total-box { border-radius:8px; padding:12px; text-align:center; }
+      .total-box .t-lbl { font-size:11px; color:#6b6860; font-weight:600; margin-bottom:4px; }
+      .total-box .t-val { font-family:'Tajawal',sans-serif; font-size:20px; font-weight:900; }
+      .total-box.gold  { background:#fdf3dc; } .total-box.gold .t-val  { color:#9a6f10; }
+      .total-box.green { background:#e8f5ee; } .total-box.green .t-val { color:#1e7e4a; }
+      .total-box.red   { background:#fce8e6; } .total-box.red .t-val   { color:#c0392b; }
+      table { width:100%; border-collapse:collapse; font-size:12px; }
+      thead tr { background:#0f3d2e; color:#fff; }
+      th { padding:8px 10px; text-align:right; font-size:11px; font-weight:700; }
+      .next-inst { background:#fffbe6; border:2px solid #c9982a; border-radius:8px; padding:10px 14px; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; }
+      .next-inst .n-title { font-weight:700; color:#7a5c0a; font-size:12px; }
+      .next-inst .n-val { font-family:'Tajawal',sans-serif; font-size:18px; font-weight:900; color:#9a6f10; }
+      .note-box { background:#f0ede6; border-radius:8px; padding:10px 14px; margin-top:14px; font-size:12px; }
+      .sig-row { display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:28px; }
+      .sig-box { border-top:2px solid #1c1c1a; padding-top:8px; text-align:center; font-size:11px; color:#6b6860; }
+      .footer { margin-top:16px; text-align:center; font-size:10px; color:#aaa; border-top:1px solid #e0ddd6; padding-top:8px; }
+      @media print { body { padding:10px; } @page { margin:12mm; size:A4; } }
+    </style>
+
+    <div class="header">
+      <div>
+        <h1>بيانات العميل وجدول الأقساط</h1>
+        <div class="sub">نظام إدارة المشاريع العقارية — ${dateStr}</div>
+      </div>
+      <div class="logo-box">🏗️<br>${project?.projectName || ''}</div>
+    </div>
+
+    <div class="info-section">
+      <div class="info-card">
+        <h3>👤 بيانات العميل</h3>
+        <div class="info-row"><span class="lbl">الاسم</span><span class="val">${sale.customerName}</span></div>
+        <div class="info-row"><span class="lbl">رقم الهاتف</span><span class="val">${sale.customerPhone || '—'}</span></div>
+        ${sale.notes ? `<div class="info-row"><span class="lbl">ملاحظات</span><span class="val">${sale.notes}</span></div>` : ''}
+      </div>
+      <div class="info-card">
+        <h3>🏢 بيانات الوحدة</h3>
+        <div class="info-row"><span class="lbl">المشروع</span><span class="val">${project?.projectName || '—'}</span></div>
+        <div class="info-row"><span class="lbl">نوع الوحدة</span><span class="val">${sale.unitType === 'apartment' ? 'شقة' : 'محل'} ${sale.unitNumber || ''}</span></div>
+        <div class="info-row"><span class="lbl">تاريخ البيع</span><span class="val">${formatDate(sale.saleDate)}</span></div>
+        <div class="info-row"><span class="lbl">طريقة الدفع</span><span class="val">${sale.paymentType === 'cash' ? 'كاش' : 'أقساط'}</span></div>
+      </div>
+    </div>
+
+    <div class="totals">
+      <div class="total-box gold"><div class="t-lbl">إجمالي السعر</div><div class="t-val">${formatCurrency(sale.totalPrice)}</div><div class="t-lbl">ج.م</div></div>
+      <div class="total-box green"><div class="t-lbl">المدفوع</div><div class="t-val">${formatCurrency(totalPaid)}</div><div class="t-lbl">ج.م</div></div>
+      <div class="total-box ${remaining > 0 ? 'red' : 'green'}"><div class="t-lbl">المتبقي</div><div class="t-val">${formatCurrency(remaining)}</div><div class="t-lbl">ج.م</div></div>
+    </div>
+
+    ${nextInst ? `
+    <div class="next-inst">
+      <div>
+        <div class="n-title">📅 القسط القادم: ${nextInst.label}</div>
+        <div style="font-size:12px;color:#7a5c0a;margin-top:2px">تاريخ الاستحقاق: ${formatDate(nextInst.dueDate)}</div>
+      </div>
+      <div class="n-val">${formatCurrency(nextInst.remainingAmount || nextInst.totalAmount)} ج.م</div>
+    </div>` : ''}
+
+    <div style="font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;color:#0f3d2e;border-bottom:2px solid #c9982a;padding-bottom:6px;margin-bottom:10px">
+      📋 جدول الأقساط
+    </div>
+    <table>
+      <thead><tr>
+        <th style="width:40px">#</th>
+        <th>البند</th>
+        <th>المبلغ</th>
+        <th>تاريخ الاستحقاق</th>
+        <th>المدفوع</th>
+        <th>الحالة</th>
+      </tr></thead>
+      <tbody>${instRows}</tbody>
+    </table>
+
+    <div class="sig-row">
+      <div class="sig-box">توقيع العميل<br>${sale.customerName}</div>
+      <div class="sig-box">توقيع المسؤول<br>شركة ${project?.projectName || ''}</div>
+    </div>
+
+    <div class="footer">تم الإصدار بواسطة نظام إدارة المشاريع العقارية — ${dateStr}</div>`;
+
+  openPrintWindow(html, `بيانات-${sale.customerName}`);
+  showToast('جاري فتح صفحة الطباعة...', 'info');
 }
 
 // ============================================================
