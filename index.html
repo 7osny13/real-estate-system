@@ -276,6 +276,25 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
       <div class="section-title">💰 المبيعات</div>
       <button class="btn btn-primary" onclick="openAddSaleModal()">➕ إضافة بيعة</button>
     </div>
+
+    <!-- شريط البحث والفلترة -->
+    <div style="background:var(--bg-card);border-radius:var(--radius-md);padding:1rem 1.25rem;margin-bottom:1.25rem;border:1px solid var(--border);display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
+      <input type="text" id="search-input" class="form-control" placeholder="🔍 ابحث باسم العميل أو رقم الوحدة..."
+        oninput="filterSales()" style="flex:1;min-width:200px;padding:.6rem .9rem">
+      <select id="filter-project" class="form-control" onchange="filterSales()" style="min-width:150px;padding:.6rem .9rem">
+        <option value="">كل المشاريع</option>
+      </select>
+      <select id="filter-status" class="form-control" onchange="filterSales()" style="min-width:150px;padding:.6rem .9rem">
+        <option value="">كل الحالات</option>
+        <option value="paid">✅ مسدد بالكامل</option>
+        <option value="partial">⏳ سداد جزئي</option>
+        <option value="overdue">🔴 قسط متأخر</option>
+        <option value="cash">💵 كاش</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="clearFilters()">✕ مسح</button>
+      <span id="filter-count" style="font-size:.83rem;color:var(--text-muted);white-space:nowrap"></span>
+    </div>
+
     <div id="sales-list"></div>
   </div>
 
@@ -491,7 +510,12 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
         <div class="form-group"><label class="form-label">رقم الهاتف</label><input type="tel" class="form-control" name="customerPhone" id="edit-sale-customer-phone"></div>
         <div class="form-group"><label class="form-label">إجمالي السعر (ج.م)</label><input type="number" class="form-control" name="totalPrice" id="edit-sale-total-price" required min="0" step="0.01"></div>
       </div>
-      <div class="form-group"><label class="form-label">ملاحظات</label><textarea class="form-control" name="notes" id="edit-sale-notes" rows="2"></textarea></div>
+      <div class="form-group"><label class="form-label">ملاحظات العقد</label><textarea class="form-control" name="notes" id="edit-sale-notes" rows="2"></textarea></div>
+      <div class="form-group">
+        <label class="form-label">📌 ملاحظات CRM <span style="font-weight:400;color:var(--text-muted)">(للمتابعة الداخلية)</span></label>
+        <textarea class="form-control" name="notesCrm" id="edit-sale-notes-crm" rows="2"
+          placeholder="مثال: عميل VIP، يتواصل عبر أخيه، يفضل الاتصال الصباح..."></textarea>
+      </div>
       <div class="info-box">ℹ️ لتعديل الأقساط استخدم زر "الأقساط" من قائمة المبيعات</div>
       <div style="display:flex;gap:.75rem;margin-top:1.5rem">
         <button type="submit" class="btn btn-primary" style="flex:1">✅ حفظ</button>
