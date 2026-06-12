@@ -158,6 +158,7 @@ const DB = {
       customer_phone: updates.customerPhone || '',
       total_price: updates.totalPrice,
       notes: updates.notes || '',
+      notes_crm: updates.notesCrm || '',
       updated_at: new Date().toISOString()
     };
     const { data, error } = await this.supabase.from('sales').update(row).eq('id', id).select();
@@ -385,6 +386,7 @@ function mapSale(s) {
     downPayment: parseFloat(s.down_payment) || 0,
     installmentsCount: s.installments_count || 0,
     notes: s.notes,
+    notesCrm: s.notes_crm || '',
     payments: s.payments || [],
     files: Array.isArray(s.files) ? s.files : [],
     createdAt: s.created_at
@@ -759,19 +761,20 @@ function renderProjectCard(p) {
 }
 
 // ============================================================
-// SALES RENDERING
+// SALES RENDERING + SEARCH/FILTER
 // ============================================================
-function renderSales() {
+function renderSales(filteredList = null) {
   const container = document.getElementById('sales-list');
   if (!container) return;
   const today = new Date(); today.setHours(0, 0, 0, 0);
+  const list = filteredList !== null ? filteredList : sales;
 
-  if (sales.length === 0) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">💰</div><p class="empty-state-text">لا توجد مبيعات بعد</p></div>`;
+  if (list.length === 0) {
+    container.innerHTML = `<div class="empty"><div class="empty-icon">💰</div><p>${sales.length === 0 ? 'لا توجد مبيعات بعد' : 'لا توجد نتائج للبحث'}</p></div>`;
     return;
   }
 
-  container.innerHTML = sales.map(sale => {
+  container.innerHTML = list.map(sale => {
     const project = projects.find(p => p.id === sale.projectId);
     const totalPaid = getTotalPaid(sale);
     const remaining = sale.totalPrice - totalPaid;
@@ -789,6 +792,7 @@ function renderSales() {
           <div>
             <div class="sale-customer">${sale.customerName}</div>
             <div class="sale-meta">${sale.customerPhone || ''}</div>
+            ${sale.notesCrm ? `<div style="margin-top:.35rem;background:#fdf3dc;border-radius:6px;padding:.3rem .7rem;font-size:.8rem;color:#7a5c0a;display:inline-block">📌 ${sale.notesCrm}</div>` : ''}
             <div style="margin-top:.5rem;display:flex;gap:.4rem;flex-wrap:wrap">
               <span class="badge badge-blue">${project?.projectName || 'غير معروف'}</span>
               <span class="badge badge-green">${sale.unitType === 'apartment' ? '🏠 شقة' : '🏪 محل'} ${sale.unitNumber || ''}</span>
@@ -812,6 +816,72 @@ function renderSales() {
         </div>
       </div>`;
   }).join('');
+}
+
+// ── بحث وفلترة ────────────────────────────────────────────
+function filterSales() {
+  const searchVal = document.getElementById('search-input')?.value?.toLowerCase().trim() || '';
+  const projectVal = document.getElementById('filter-project')?.value || '';
+  const statusVal  = document.getElementById('filter-status')?.value || '';
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  let filtered = sales.filter(sale => {
+    // بحث نصي
+    if (searchVal) {
+      const haystack = `${sale.customerName} ${sale.customerPhone || ''} ${sale.unitNumber || ''} ${sale.notesCrm || ''}`.toLowerCase();
+      if (!haystack.includes(searchVal)) return false;
+    }
+    // فلتر المشروع
+    if (projectVal && sale.projectId !== projectVal) return false;
+    // فلتر الحالة
+    if (statusVal) {
+      const totalPaid = getTotalPaid(sale);
+      const remaining = sale.totalPrice - totalPaid;
+      const hasOverdue = (sale.payments || []).some(inst => {
+        if (inst.status !== 'paid') {
+          const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
+          return due < today;
+        }
+        return false;
+      });
+      if (statusVal === 'paid'    && remaining > 0.01) return false;
+      if (statusVal === 'partial' && (remaining <= 0.01 || hasOverdue || sale.paymentType === 'cash')) return false;
+      if (statusVal === 'overdue' && !hasOverdue) return false;
+      if (statusVal === 'cash'    && sale.paymentType !== 'cash') return false;
+    }
+    return true;
+  });
+
+  // عداد النتائج
+  const countEl = document.getElementById('filter-count');
+  if (countEl) countEl.textContent = (searchVal || projectVal || statusVal) ? `${filtered.length} من ${sales.length} نتيجة` : '';
+
+  renderSales(filtered);
+}
+
+function clearFilters() {
+  const s = document.getElementById('search-input');
+  const p = document.getElementById('filter-project');
+  const f = document.getElementById('filter-status');
+  if (s) s.value = '';
+  if (p) p.value = '';
+  if (f) f.value = '';
+  const countEl = document.getElementById('filter-count');
+  if (countEl) countEl.textContent = '';
+  renderSales();
+}
+
+function populateFilterProject() {
+  const sel = document.getElementById('filter-project');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">كل المشاريع</option>';
+  projects.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id; opt.textContent = p.projectName;
+    sel.appendChild(opt);
+  });
+  if (cur) sel.value = cur;
 }
 
 // ============================================================
@@ -1241,6 +1311,7 @@ function openEditSaleModal(saleId) {
   document.getElementById('edit-sale-customer-phone').value = sale.customerPhone || '';
   document.getElementById('edit-sale-total-price').value = sale.totalPrice;
   document.getElementById('edit-sale-notes').value = sale.notes || '';
+  document.getElementById('edit-sale-notes-crm').value = sale.notesCrm || '';
   document.getElementById('edit-sale-modal').classList.add('active');
 }
 
@@ -1255,7 +1326,8 @@ async function updateSale(event) {
     customerName: fd.get('customerName'),
     customerPhone: fd.get('customerPhone') || '',
     totalPrice: parseFloat(fd.get('totalPrice')),
-    notes: fd.get('notes') || ''
+    notes: fd.get('notes') || '',
+    notesCrm: fd.get('notesCrm') || ''
   });
   if (updated) {
     await loadData();
@@ -1570,6 +1642,7 @@ function populateProjectSelects() {
     });
     if (cur) sel.value = cur;
   });
+  populateFilterProject();
 }
 
 function updateUnitTypes() {
