@@ -257,6 +257,24 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
         <div class="empty"><div class="empty-icon">🏗️</div><p>لا توجد مشاريع نشطة</p></div>
       </div>
     </div>
+
+    <!-- لوحة الأقساط القادمة -->
+    <div class="card">
+      <div class="card-hd">
+        <div class="card-title">📅 الأقساط القادمة والمتأخرة</div>
+        <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+          <select id="upcoming-days-filter" class="form-control" onchange="renderUpcomingInstallments()"
+            style="padding:.4rem .75rem;font-size:.85rem;width:auto">
+            <option value="7">خلال 7 أيام</option>
+            <option value="15">خلال 15 يوم</option>
+            <option value="30" selected>خلال 30 يوم</option>
+            <option value="60">خلال 60 يوم</option>
+            <option value="0">المتأخرة فقط</option>
+          </select>
+        </div>
+      </div>
+      <div id="upcoming-installments-list"></div>
+    </div>
   </div>
 
   <!-- PROJECTS -->
