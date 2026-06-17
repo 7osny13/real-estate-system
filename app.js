@@ -137,6 +137,7 @@ const DB = {
       total_price: sale.totalPrice,
       payment_type: sale.paymentType,
       down_payment: sale.downPayment || 0,
+      payment_mode: sale.paymentMode || 'free',
       installments_count: sale.installments ? sale.installments.length : 0,
       notes: sale.notes || '',
       // NEW: store flexible installments array
@@ -340,6 +341,50 @@ const DB = {
       await this.supabase.from('sales').update({ payments, updated_at: new Date().toISOString() }).eq('id', saleId);
     }
     await this.deleteFile(filePath);
+  },
+
+  // ══════════════════════════════════════════════════════════
+  // FLEXIBLE PAYMENTS — جدول payments المستقل (نظام الدفع الحر)
+  // ══════════════════════════════════════════════════════════
+  async getPayments() {
+    const { data, error } = await this.supabase
+      .from('payments').select('*').order('date', { ascending: false });
+    if (error) { console.error(error); return []; }
+    return data.map(mapPayment);
+  },
+
+  async getSalePayments(saleId) {
+    const { data, error } = await this.supabase
+      .from('payments').select('*').eq('sale_id', saleId).order('date', { ascending: false });
+    if (error) { console.error(error); return []; }
+    return data.map(mapPayment);
+  },
+
+  async addPayment(payment) {
+    const row = {
+      id: crypto.randomUUID(),
+      sale_id: payment.saleId,
+      amount: payment.amount,
+      date: payment.date,
+      due_date: payment.dueDate || null,
+      notes: payment.notes || ''
+    };
+    const { data, error } = await this.supabase.from('payments').insert([row]).select();
+    if (error) { console.error(error); showToast('خطأ في إضافة الدفعة', 'error'); return null; }
+    return mapPayment(data[0]);
+  },
+
+  async deletePayment(id) {
+    const { error } = await this.supabase.from('payments').delete().eq('id', id);
+    if (error) { console.error(error); showToast('خطأ في حذف الدفعة', 'error'); return false; }
+    return true;
+  },
+
+  async updateSalePaymentMode(saleId, mode) {
+    const { error } = await this.supabase
+      .from('sales').update({ payment_mode: mode, updated_at: new Date().toISOString() }).eq('id', saleId);
+    if (error) { console.error(error); showToast('خطأ في تحديث نظام الدفع', 'error'); return false; }
+    return true;
   }
 };
 
@@ -384,12 +429,25 @@ function mapSale(s) {
     totalPrice: parseFloat(s.total_price),
     paymentType: s.payment_type,
     downPayment: parseFloat(s.down_payment) || 0,
+    paymentMode: s.payment_mode || 'free',
     installmentsCount: s.installments_count || 0,
     notes: s.notes,
     notesCrm: s.notes_crm || '',
     payments: s.payments || [],
     files: Array.isArray(s.files) ? s.files : [],
     createdAt: s.created_at
+  };
+}
+
+function mapPayment(row) {
+  return {
+    id: row.id,
+    saleId: row.sale_id,
+    amount: parseFloat(row.amount),
+    date: row.date,
+    dueDate: row.due_date,
+    notes: row.notes || '',
+    createdAt: row.created_at
   };
 }
 
@@ -437,6 +495,7 @@ function buildInstallmentsArray(sale) {
 // ============================================================
 let projects = [];
 let sales = [];
+let freePayments = [];
 
 // ============================================================
 // INIT
@@ -465,7 +524,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadData() {
   try {
-    [projects, sales] = await Promise.all([DB.getProjects(), DB.getSales()]);
+    [projects, sales, freePayments] = await Promise.all([DB.getProjects(), DB.getSales(), DB.getPayments()]);
   } catch (err) {
     console.error(err);
     showToast('خطأ في تحميل البيانات', 'error');
@@ -656,7 +715,7 @@ async function updateDashboard() {
 
   let totalPaid = 0, totalCosts = 0, totalExpected = 0;
   for (const p of projects) totalCosts += await calculateProjectCosts(p.id);
-  totalPaid = sales.reduce((s, sale) => s + getTotalPaid(sale), 0);
+  totalPaid = sales.reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
   totalExpected = sales.reduce((s, sale) => s + sale.totalPrice, 0);
   const totalRemaining = totalExpected - totalPaid;
   const netProfit = totalPaid - totalCosts;
@@ -680,8 +739,90 @@ async function updateDashboard() {
   // Charts
   renderCharts(totalPaid, totalCosts);
 
+  // مقارنة المشاريع
+  renderProjectsComparison();
+
+  // التنبيهات
+  renderPaymentAlerts();
+
   // لوحة الأقساط القادمة
   renderUpcomingInstallments();
+}
+
+// ============================================================
+// مقارنة المشاريع (NEW — موحّدة لكل المشاريع)
+// ============================================================
+let chartProjectsComparison = null;
+
+async function renderProjectsComparison() {
+  const grid = document.getElementById('projects-comparison-grid');
+  if (!grid) return;
+
+  const cards = [];
+  const labels = [], revenueData = [], expensesData = [], profitData = [];
+
+  for (const p of projects) {
+    const projectSales = sales.filter(s => s.projectId === p.id);
+    const totalUnits = (p.apartmentsCount || 0) + (p.shopsCount || 0);
+    const sold = projectSales.length;
+    const available = Math.max(totalUnits - sold, 0);
+    const expectedRev = projectSales.reduce((s, sale) => s + sale.totalPrice, 0);
+    const collected = projectSales.reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
+    const costs = await calculateProjectCosts(p.id);
+    const profit = collected - costs;
+
+    labels.push(p.projectName.length > 14 ? p.projectName.slice(0, 14) + '…' : p.projectName);
+    revenueData.push(expectedRev);
+    expensesData.push(costs);
+    profitData.push(profit);
+
+    cards.push(`
+      <div class="proj-card" onclick="showProjectDetails('${p.id}')">
+        <div class="proj-bar"></div>
+        <div class="proj-body">
+          <div class="proj-name">${p.projectName}</div>
+          <div class="proj-stats-grid">
+            <div class="proj-stat"><div class="proj-stat-val">${totalUnits}</div><div class="proj-stat-lbl">إجمالي الوحدات</div></div>
+            <div class="proj-stat"><div class="proj-stat-val">${sold}</div><div class="proj-stat-lbl">مباعة</div></div>
+            <div class="proj-stat"><div class="proj-stat-val">${available}</div><div class="proj-stat-lbl">متاحة</div></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:.3rem;font-size:.82rem;margin-top:.65rem">
+            <div>إجمالي الإيرادات: <strong style="color:var(--info)">${formatCurrency(expectedRev)} ج.م</strong></div>
+            <div>إجمالي المحصّل: <strong style="color:var(--gold)">${formatCurrency(collected)} ج.م</strong></div>
+            <div>إجمالي المصاريف: <strong style="color:var(--danger)">${formatCurrency(costs)} ج.م</strong></div>
+            <div>صافي الربح: <strong style="color:${profit >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatCurrency(profit)} ج.م</strong></div>
+          </div>
+        </div>
+      </div>`);
+  }
+
+  grid.innerHTML = cards.length === 0
+    ? `<div class="empty"><div class="empty-icon">🏢</div><p>لا توجد مشاريع بعد</p></div>`
+    : cards.join('');
+
+  const ctx = document.getElementById('chart-projects-comparison');
+  if (ctx) {
+    if (chartProjectsComparison) chartProjectsComparison.destroy();
+    chartProjectsComparison = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'الإيرادات', data: revenueData, backgroundColor: 'rgba(36,113,163,0.8)', borderRadius: 6 },
+          { label: 'المصاريف', data: expensesData, backgroundColor: 'rgba(192,57,43,0.75)', borderRadius: 6 },
+          { label: 'صافي الربح', data: profitData, backgroundColor: 'rgba(201,152,42,0.85)', borderRadius: 6 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { font: { family: 'Cairo', size: 11 }, boxWidth: 14 } } },
+        scales: {
+          x: { ticks: { font: { family: 'Cairo', size: 10 } } },
+          y: { ticks: { font: { family: 'Cairo', size: 10 }, callback: v => (v / 1000) + 'k' } }
+        }
+      }
+    });
+  }
 }
 
 // ============================================================
@@ -775,6 +916,81 @@ function renderUpcomingInstallments() {
       متأخرة: <strong style="color:var(--danger)">${items.filter(i => i.isOverdue).length}</strong> —
       قادمة: <strong style="color:var(--info)">${items.filter(i => !i.isOverdue).length}</strong>
     </div>`;
+}
+
+// ============================================================
+// DASHBOARD ALERTS (NEW) — عاجل / تنبيه / مكتمل
+// ============================================================
+function quickAddPayment(saleId) {
+  showAddPaymentForm = true;
+  renderPaymentPage(saleId);
+  document.getElementById('payment-page-modal').classList.add('active');
+}
+
+function renderPaymentAlerts() {
+  const container = document.getElementById('alerts-content');
+  if (!container) return;
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const currentMonthKey = today.toISOString().slice(0, 7);
+
+  const urgent = [], warning = [], complete = [];
+
+  for (const sale of sales) {
+    const project = projects.find(p => p.id === sale.projectId);
+    const remaining = sale.totalPrice - getCombinedTotalPaid(sale);
+    const lastPaymentDate = getLastPaymentDate(sale);
+    const refDateStr = lastPaymentDate || sale.saleDate;
+    const refDate = new Date(refDateStr); refDate.setHours(0, 0, 0, 0);
+    const daysSince = Math.floor((today - refDate) / 86400000);
+
+    const item = { sale, project, remaining, lastPaymentDate };
+
+    if (remaining <= 0.01) {
+      complete.push(item);
+    } else if (daysSince > 30) {
+      urgent.push(item);
+    } else {
+      const paidThisMonth = lastPaymentDate && lastPaymentDate.slice(0, 7) === currentMonthKey;
+      if (!paidThisMonth) warning.push(item);
+    }
+  }
+
+  const byOldestPayment = (a, b) => (a.lastPaymentDate || a.sale.saleDate) < (b.lastPaymentDate || b.sale.saleDate) ? -1 : 1;
+  urgent.sort(byOldestPayment);
+  warning.sort(byOldestPayment);
+
+  const row = item => `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.75rem;background:var(--bg-subtle);border-radius:var(--radius-sm);padding:.75rem 1rem;margin-bottom:.5rem">
+      <div>
+        <div style="font-weight:700;color:var(--primary)">${item.sale.customerName}</div>
+        <div style="font-size:.8rem;color:var(--text-muted)">${item.project?.projectName || '—'} — ${item.sale.unitType === 'apartment' ? '🏠' : '🏪'} ${item.sale.unitNumber || ''}</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:.78rem;color:var(--text-muted)">المتبقي</div>
+        <div style="font-weight:700;color:var(--danger)">${formatCurrency(item.remaining)} ج.م</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:.78rem;color:var(--text-muted)">آخر دفعة</div>
+        <div style="font-weight:600">${item.lastPaymentDate ? formatDate(item.lastPaymentDate) : 'لا يوجد'}</div>
+      </div>
+      <button class="btn btn-gold btn-xs" onclick="quickAddPayment('${item.sale.id}')">➕ إضافة دفعة</button>
+    </div>`;
+
+  const section = (title, items, badgeClass, openByDefault) => `
+    <details ${openByDefault ? 'open' : ''} style="margin-bottom:1rem">
+      <summary style="cursor:pointer;font-weight:700;color:var(--primary);margin-bottom:.5rem">
+        ${title} <span class="badge badge-${badgeClass}">${items.length}</span>
+      </summary>
+      <div style="margin-top:.5rem">
+        ${items.length === 0 ? `<div class="empty" style="padding:1rem"><p>لا يوجد</p></div>` : items.map(row).join('')}
+      </div>
+    </details>`;
+
+  container.innerHTML =
+    section('🔴 عاجل — لا توجد دفعة منذ أكثر من 30 يوم', urgent, 'red', urgent.length > 0) +
+    section('🟡 تنبيه — لا توجد دفعة هذا الشهر', warning, 'gold', warning.length > 0) +
+    section('🟢 مكتمل — مسدد بالكامل', complete, 'green', false);
 }
 
 // ============================================================
@@ -872,7 +1088,7 @@ function renderSales(filteredList = null) {
 
   container.innerHTML = list.map(sale => {
     const project = projects.find(p => p.id === sale.projectId);
-    const totalPaid = getTotalPaid(sale);
+    const totalPaid = getCombinedTotalPaid(sale);
     const remaining = sale.totalPrice - totalPaid;
     const hasOverdue = (sale.payments || []).some(inst => {
       if (inst.status === 'pending' || inst.status === 'partial') {
@@ -905,6 +1121,7 @@ function renderSales(filteredList = null) {
         </div>
         <div style="display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap">
           <button class="btn btn-primary btn-sm" onclick="showSaleInstallments('${sale.id}')">📋 الأقساط (${sale.payments?.length || 0})</button>
+          <button class="btn btn-gold btn-sm" onclick="openPaymentPage('${sale.id}')">💳 صفحة الدفع</button>
           <button class="btn btn-warning btn-sm" onclick="openSaleFilesModal('${sale.id}')">📎 ملفات (${(sale.files||[]).length})</button>
           <button class="btn btn-pdf btn-sm" onclick="exportClientPDF('${sale.id}')">📄 كشف حساب</button>
           <button class="btn btn-success btn-sm" onclick="printClientPage('${sale.id}')">🖨️ طباعة بيانات</button>
@@ -932,7 +1149,7 @@ function filterSales() {
     if (projectVal && sale.projectId !== projectVal) return false;
     // فلتر الحالة
     if (statusVal) {
-      const totalPaid = getTotalPaid(sale);
+      const totalPaid = getCombinedTotalPaid(sale);
       const remaining = sale.totalPrice - totalPaid;
       const hasOverdue = (sale.payments || []).some(inst => {
         if (inst.status !== 'paid') {
@@ -988,7 +1205,7 @@ function showSaleInstallments(saleId) {
   const sale = sales.find(s => s.id === saleId);
   if (!sale) return;
   const today = new Date(); today.setHours(0,0,0,0);
-  const totalPaid = getTotalPaid(sale);
+  const totalPaid = getCombinedTotalPaid(sale);
   const remaining = sale.totalPrice - totalPaid;
 
   const modal = document.getElementById('installments-modal');
@@ -1379,6 +1596,7 @@ async function addSale(event) {
     totalPrice: parseFloat(fd.get('totalPrice')),
     paymentType,
     downPayment: parseFloat(fd.get('downPayment')) || 0,
+    paymentMode: fd.get('paymentMode') || 'free',
     notes: fd.get('notes') || '',
     installments: installmentRows.map(r => ({ label: r.label, amount: parseFloat(r.amount), dueDate: r.dueDate }))
   });
@@ -1557,7 +1775,7 @@ async function showProjectDetails(projectId) {
   const expenses = await DB.getProjectExpenses(projectId);
   const projectSales = await DB.getProjectSales(projectId);
   const totalCosts = expenses.reduce((s, e) => s + e.amount, 0);
-  const totalRevenue = projectSales.reduce((s, sale) => s + getTotalPaid(sale), 0);
+  const totalRevenue = projectSales.reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
   const expectedRevenue = projectSales.reduce((s, sale) => s + sale.totalPrice, 0);
 
   document.getElementById('project-details-title').textContent = `تفاصيل - ${project.projectName}`;
@@ -1618,7 +1836,7 @@ async function showProjectDetails(projectId) {
     </div>
     ${projectSales.length === 0 ? `<div class="empty-state"><div class="empty-state-icon">💰</div><p>لا توجد مبيعات بعد</p></div>` :
       projectSales.map(sale => {
-        const paid = getTotalPaid(sale);
+        const paid = getCombinedTotalPaid(sale);
         const remaining = sale.totalPrice - paid;
         return `
           <div style="background:var(--bg-main);border-radius:10px;padding:1rem;margin-bottom:0.75rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
@@ -1641,9 +1859,140 @@ async function showProjectDetails(projectId) {
 // ============================================================
 // REPORTS
 // ============================================================
+// ============================================================
+// التقرير الشهري (NEW) — فلتر شهر/سنة + تفصيل المصاريف + التحصيلات
+// ============================================================
+let chartExpenseBreakdown = null;
+
+function populateReportFilters() {
+  const monthSel = document.getElementById('report-month-filter');
+  const yearSel = document.getElementById('report-year-filter');
+  if (!monthSel || !yearSel) return;
+  if (monthSel.options.length > 0) return; // already populated — لا تعيد ضبط اختيار المستخدم
+
+  const months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+  monthSel.innerHTML = months.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+
+  const curYear = new Date().getFullYear();
+  let yearOptions = '';
+  for (let y = curYear - 3; y <= curYear + 1; y++) yearOptions += `<option value="${y}">${y}</option>`;
+  yearSel.innerHTML = yearOptions;
+
+  const today = new Date();
+  monthSel.value = today.getMonth() + 1;
+  yearSel.value = today.getFullYear();
+}
+
+async function getAllExpenses() {
+  const all = [];
+  for (const p of projects) {
+    const exp = await DB.getProjectExpenses(p.id);
+    exp.forEach(e => all.push({ ...e, projectName: p.projectName }));
+  }
+  return all;
+}
+
+async function renderMonthlyReport() {
+  const monthSel = document.getElementById('report-month-filter');
+  const yearSel = document.getElementById('report-year-filter');
+  if (!monthSel || !yearSel || !monthSel.value || !yearSel.value) return;
+
+  const month = parseInt(monthSel.value);
+  const year = parseInt(yearSel.value);
+  const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+
+  // إجمالي المبيعات (عقود) هذا الشهر
+  const monthSales = sales.filter(s => (s.saleDate || '').slice(0, 7) === monthKey);
+  const totalSalesMonth = monthSales.reduce((s, sale) => s + sale.totalPrice, 0);
+
+  // التحصيلات هذا الشهر — من الأقساط الثابتة (القديمة) + الدفعات الحرة (الجديدة)
+  const collections = [];
+  for (const sale of sales) {
+    const project = projects.find(p => p.id === sale.projectId);
+    (sale.payments || []).forEach(inst => (inst.partialPayments || []).forEach(pp => {
+      if ((pp.date || '').slice(0, 7) === monthKey) {
+        collections.push({ date: pp.date, customerName: sale.customerName, projectName: project?.projectName || '—', amount: parseFloat(pp.amount) || 0 });
+      }
+    }));
+  }
+  freePayments.forEach(p => {
+    if ((p.date || '').slice(0, 7) === monthKey) {
+      const sale = sales.find(s => s.id === p.saleId);
+      const project = sale ? projects.find(pr => pr.id === sale.projectId) : null;
+      collections.push({ date: p.date, customerName: sale?.customerName || '—', projectName: project?.projectName || '—', amount: p.amount });
+    }
+  });
+  collections.sort((a, b) => (a.date < b.date ? -1 : 1));
+  const totalCollected = collections.reduce((s, c) => s + c.amount, 0);
+
+  // المصاريف هذا الشهر
+  const allExpenses = await getAllExpenses();
+  const monthExpenses = allExpenses.filter(e => (e.date || '').slice(0, 7) === monthKey);
+  const totalExpensesMonth = monthExpenses.reduce((s, e) => s + e.amount, 0);
+
+  const netProfitMonth = totalCollected - totalExpensesMonth;
+
+  // ── ملخص الشهر ──
+  const statsEl = document.getElementById('monthly-summary-stats');
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <div class="stat-card info"><div class="stat-label">إجمالي المبيعات هذا الشهر</div><div class="stat-value">${formatCurrency(totalSalesMonth)}</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card gold"><div class="stat-label">إجمالي المحصّل هذا الشهر</div><div class="stat-value">${formatCurrency(totalCollected)}</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card danger"><div class="stat-label">إجمالي المصاريف هذا الشهر</div><div class="stat-value">${formatCurrency(totalExpensesMonth)}</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card gold"><div class="stat-label">صافي الربح هذا الشهر</div><div class="stat-value">${formatCurrency(netProfitMonth)}</div><div class="stat-sub">ج.م</div></div>`;
+  }
+
+  // ── توزيع المصاريف حسب الفئة ──
+  const categories = {};
+  monthExpenses.forEach(e => {
+    const key = getCategoryName(e.category, e.customCategory);
+    categories[key] = (categories[key] || 0) + e.amount;
+  });
+  const catEntries = Object.entries(categories);
+
+  const tableEl = document.getElementById('monthly-expense-table');
+  if (tableEl) {
+    tableEl.innerHTML = catEntries.length === 0
+      ? `<div class="empty" style="padding:1.5rem"><p>لا توجد مصروفات هذا الشهر</p></div>`
+      : `<table class="report-table" style="width:100%">
+          <thead><tr><th>الفئة</th><th>المبلغ</th></tr></thead>
+          <tbody>${catEntries.map(([cat, amt]) => `<tr><td>${cat}</td><td style="font-weight:700;color:var(--gold)">${formatCurrency(amt)} ج.م</td></tr>`).join('')}</tbody>
+        </table>`;
+  }
+
+  const pieCtx = document.getElementById('chart-expense-breakdown');
+  if (pieCtx) {
+    if (chartExpenseBreakdown) { chartExpenseBreakdown.destroy(); chartExpenseBreakdown = null; }
+    if (catEntries.length > 0) {
+      chartExpenseBreakdown = new Chart(pieCtx, {
+        type: 'pie',
+        data: {
+          labels: catEntries.map(([cat]) => cat),
+          datasets: [{ data: catEntries.map(([, amt]) => amt), backgroundColor: ['#c9982a', '#0f3d2e', '#2d8a60', '#e07b39', '#2471a3', '#c0392b', '#e67e22'] }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { family: 'Cairo', size: 10 }, boxWidth: 12 } } } }
+      });
+    }
+  }
+
+  // ── سجل التحصيلات ──
+  const collectionsEl = document.getElementById('monthly-collections-table');
+  if (collectionsEl) {
+    collectionsEl.innerHTML = collections.length === 0
+      ? `<div class="empty" style="padding:1.5rem"><p>لا توجد تحصيلات هذا الشهر</p></div>`
+      : `<table class="report-table" style="width:100%">
+          <thead><tr><th>التاريخ</th><th>اسم العميل</th><th>المشروع</th><th>المبلغ</th></tr></thead>
+          <tbody>${collections.map(c => `<tr><td>${formatDate(c.date)}</td><td>${c.customerName}</td><td>${c.projectName}</td><td style="font-weight:700;color:var(--gold)">${formatCurrency(c.amount)} ج.م</td></tr>`).join('')}</tbody>
+        </table>`;
+  }
+}
+
 async function generateReport() {
   const container = document.getElementById('reports-content');
   if (!container) return;
+
+  populateReportFilters();
+  await renderMonthlyReport();
 
   let totalRevenue = 0, totalPaid = 0, totalCosts = 0;
   for (const p of projects) {
@@ -1655,7 +2004,7 @@ async function generateReport() {
 
   // Recalculate properly
   totalRevenue = sales.reduce((s, sale) => s + sale.totalPrice, 0);
-  totalPaid = sales.reduce((s, sale) => s + getTotalPaid(sale), 0);
+  totalPaid = sales.reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
   const totalRemaining = totalRevenue - totalPaid;
   totalCosts = 0;
   for (const p of projects) totalCosts += await calculateProjectCosts(p.id);
@@ -1757,8 +2106,34 @@ function getTotalPaid(sale) {
   return (sale.payments || []).reduce((s, inst) => s + (parseFloat(inst.paidAmount) || 0), 0);
 }
 
+// ── النظام المرن: دفعات حرة من جدول payments المستقل ───────
+function getFreePaymentsForSale(saleId) {
+  return freePayments.filter(p => p.saleId === saleId);
+}
+
+function getFreePaymentsTotal(saleId) {
+  return getFreePaymentsForSale(saleId).reduce((s, p) => s + p.amount, 0);
+}
+
+// إجمالي محصّل حقيقي لعملية بيع = الأقساط الثابتة (القديمة) + الدفعات الحرة (الجديدة)
+function getCombinedTotalPaid(sale) {
+  return getTotalPaid(sale) + getFreePaymentsTotal(sale.id);
+}
+
+function getLastPaymentDate(sale) {
+  const dates = [];
+  (sale.payments || []).forEach(inst => (inst.partialPayments || []).forEach(pp => { if (pp.date) dates.push(pp.date); }));
+  getFreePaymentsForSale(sale.id).forEach(p => { if (p.date) dates.push(p.date); });
+  if (dates.length === 0) return null;
+  return dates.sort().slice(-1)[0];
+}
+
+function paymentModeLabel(mode) {
+  return mode === 'installments' ? '📅 أقساط' : mode === 'both' ? '🔀 الاثنين' : '🆓 حرة';
+}
+
 function calculateProjectRevenue(projectId) {
-  return sales.filter(s => s.projectId === projectId).reduce((s, sale) => s + getTotalPaid(sale), 0);
+  return sales.filter(s => s.projectId === projectId).reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
 }
 
 async function calculateProjectCosts(projectId) {
@@ -1904,7 +2279,7 @@ async function exportClientPDF(saleId) {
   const sale = sales.find(s => s.id === saleId);
   if (!sale) return;
   const project = projects.find(p => p.id === sale.projectId);
-  const totalPaid = getTotalPaid(sale);
+  const totalPaid = getCombinedTotalPaid(sale);
   const remaining = sale.totalPrice - totalPaid;
   const today = new Date(); today.setHours(0,0,0,0);
   const dateStr = new Date().toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
@@ -1973,7 +2348,7 @@ async function exportProjectPDF(projectId) {
   const expenses = await DB.getProjectExpenses(projectId);
   const projectSales = sales.filter(s => s.projectId === projectId);
   const totalCosts = expenses.reduce((s, e) => s + e.amount, 0);
-  const totalPaid = projectSales.reduce((s, sale) => s + getTotalPaid(sale), 0);
+  const totalPaid = projectSales.reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
   const totalExpected = projectSales.reduce((s, sale) => s + sale.totalPrice, 0);
   const dateStr = new Date().toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
 
@@ -1988,7 +2363,7 @@ async function exportProjectPDF(projectId) {
     </tr>`).join('');
 
   const saleRows = projectSales.map((sale, i) => {
-    const paid = getTotalPaid(sale);
+    const paid = getCombinedTotalPaid(sale);
     const rem = sale.totalPrice - paid;
     return `<tr>
       <td>${i+1}</td>
@@ -2042,7 +2417,7 @@ async function exportMonthlyPDF() {
 
   let totalCosts = 0;
   for (const p of projects) totalCosts += await calculateProjectCosts(p.id);
-  const totalPaid = sales.reduce((s, sale) => s + getTotalPaid(sale), 0);
+  const totalPaid = sales.reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
   const totalExpected = sales.reduce((s, sale) => s + sale.totalPrice, 0);
 
   // الأقساط المتأخرة
@@ -2137,7 +2512,7 @@ function printClientPage(saleId) {
   const sale = sales.find(s => s.id === saleId);
   if (!sale) return;
   const project = projects.find(p => p.id === sale.projectId);
-  const totalPaid = getTotalPaid(sale);
+  const totalPaid = getCombinedTotalPaid(sale);
   const remaining = sale.totalPrice - totalPaid;
   const today = new Date(); today.setHours(0,0,0,0);
   const dateStr = new Date().toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
@@ -2270,6 +2645,160 @@ function printClientPage(saleId) {
 // ============================================================
 function closeModal(id) {
   document.getElementById(id)?.classList.remove('active');
+}
+
+// ============================================================
+// FLEXIBLE PAYMENT PAGE (NEW) — جدول payments المستقل
+// ============================================================
+let showAddPaymentForm = false;
+
+function openPaymentPage(saleId) {
+  showAddPaymentForm = false;
+  renderPaymentPage(saleId);
+  document.getElementById('payment-page-modal').classList.add('active');
+}
+
+function renderPaymentPage(saleId) {
+  const sale = sales.find(s => s.id === saleId);
+  if (!sale) return;
+  const project = projects.find(p => p.id === sale.projectId);
+  const title = document.getElementById('payment-page-title');
+  const content = document.getElementById('payment-page-content');
+
+  const totalPaid = getCombinedTotalPaid(sale);
+  const remaining = sale.totalPrice - totalPaid;
+  const totalPayments = totalPaid - sale.downPayment;
+  const history = getFreePaymentsForSale(saleId).slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+
+  title.textContent = `💳 صفحة الدفع — ${sale.customerName}`;
+
+  content.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.75rem;margin-bottom:1.25rem">
+      <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+        <span class="badge badge-blue">${project?.projectName || '—'}</span>
+        <span class="badge badge-green">${sale.unitType === 'apartment' ? '🏠 شقة' : '🏪 محل'} ${sale.unitNumber || ''}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <span class="badge badge-gold">${paymentModeLabel(sale.paymentMode)}</span>
+        <select id="payment-mode-select" class="form-control" style="padding:.3rem .6rem;font-size:.8rem;width:auto">
+          <option value="free" ${sale.paymentMode === 'free' ? 'selected' : ''}>🆓 حرة</option>
+          <option value="installments" ${sale.paymentMode === 'installments' ? 'selected' : ''}>📅 أقساط</option>
+          <option value="both" ${sale.paymentMode === 'both' ? 'selected' : ''}>🔀 الاثنين</option>
+        </select>
+        <button class="btn btn-ghost btn-xs" onclick="savePaymentMode('${saleId}')">💾</button>
+      </div>
+    </div>
+
+    <div class="stats-row" style="margin-bottom:1.25rem">
+      <div class="stat-card"><div class="stat-label">إجمالي ثمن الوحدة</div><div class="stat-value">${formatCurrency(sale.totalPrice)}</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card gold"><div class="stat-label">المقدم المدفوع</div><div class="stat-value">${formatCurrency(sale.downPayment)}</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card info"><div class="stat-label">إجمالي الدفعات</div><div class="stat-value">${formatCurrency(totalPayments)}</div><div class="stat-sub">يشمل الأقساط + الدفعات الحرة</div></div>
+      <div class="stat-card ${remaining > 0 ? 'danger' : ''}"><div class="stat-label">المتبقي</div><div class="stat-value">${formatCurrency(remaining)}</div><div class="stat-sub">ج.م</div></div>
+    </div>
+
+    ${sale.paymentMode !== 'free' ? `<div class="info-box">💡 لمتابعة جدول الأقساط الثابتة استخدم زر "📋 الأقساط" من قائمة المبيعات</div>` : ''}
+
+    <div class="card-hd" style="margin-top:1rem;border-bottom:none;padding-bottom:0">
+      <div class="card-title">📜 سجل الدفعات الحرة (${history.length})</div>
+      <button class="btn btn-gold btn-sm" onclick="toggleAddPaymentForm('${saleId}')">➕ إضافة دفعة</button>
+    </div>
+
+    <div id="add-payment-form-wrap"></div>
+
+    ${history.length === 0
+      ? `<div class="empty"><div class="empty-icon">💳</div><p>لا توجد دفعات حرة مسجلة بعد</p></div>`
+      : `<table class="report-table" style="width:100%">
+          <thead><tr><th>التاريخ</th><th>المبلغ</th><th>تاريخ الاستحقاق</th><th>الملاحظة</th><th></th></tr></thead>
+          <tbody>
+            ${history.map(p => `
+              <tr>
+                <td>${formatDate(p.date)}</td>
+                <td style="font-weight:700;color:var(--gold)">${formatCurrency(p.amount)} ج.م</td>
+                <td>${p.dueDate ? formatDate(p.dueDate) : '—'}</td>
+                <td>${p.notes || '—'}</td>
+                <td><button class="btn btn-danger btn-xs" onclick="deleteFreePayment('${p.id}','${saleId}')">🗑️</button></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`}
+  `;
+
+  if (showAddPaymentForm) renderAddPaymentForm(saleId);
+}
+
+function toggleAddPaymentForm(saleId) {
+  showAddPaymentForm = !showAddPaymentForm;
+  if (showAddPaymentForm) renderAddPaymentForm(saleId);
+  else { const wrap = document.getElementById('add-payment-form-wrap'); if (wrap) wrap.innerHTML = ''; }
+}
+
+function renderAddPaymentForm(saleId) {
+  const sale = sales.find(s => s.id === saleId);
+  const wrap = document.getElementById('add-payment-form-wrap');
+  if (!wrap || !sale) return;
+  const showDueDate = sale.paymentMode === 'installments' || sale.paymentMode === 'both';
+  const today = new Date().toISOString().split('T')[0];
+  wrap.innerHTML = `
+    <div class="card" style="background:var(--bg-subtle);box-shadow:none;margin-bottom:1rem">
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">المبلغ *</label><input type="number" id="np-amount" class="form-control" min="0" step="0.01"></div>
+        <div class="form-group"><label class="form-label">التاريخ *</label><input type="date" id="np-date" class="form-control" value="${today}"></div>
+        ${showDueDate ? `<div class="form-group"><label class="form-label">تاريخ الاستحقاق</label><input type="date" id="np-due-date" class="form-control"></div>` : ''}
+        <div class="form-group"><label class="form-label">ملاحظة</label><input type="text" id="np-notes" class="form-control"></div>
+      </div>
+      <div style="display:flex;gap:.5rem">
+        <button class="btn btn-primary btn-sm" onclick="submitNewPayment('${saleId}')">✅ حفظ الدفعة</button>
+        <button class="btn btn-ghost btn-sm" onclick="toggleAddPaymentForm('${saleId}')">إلغاء</button>
+      </div>
+    </div>`;
+}
+
+async function submitNewPayment(saleId) {
+  const amount = parseFloat(document.getElementById('np-amount')?.value);
+  const date = document.getElementById('np-date')?.value;
+  const dueDate = document.getElementById('np-due-date')?.value || null;
+  const notes = document.getElementById('np-notes')?.value || '';
+  if (!amount || amount <= 0) { showToast('أدخل مبلغاً صحيحاً', 'warning'); return; }
+  if (!date) { showToast('أدخل التاريخ', 'warning'); return; }
+
+  showLoading();
+  const added = await DB.addPayment({ saleId, amount, date, dueDate, notes });
+  if (added) {
+    await loadData();
+    showAddPaymentForm = false;
+    renderPaymentPage(saleId);
+    updateDashboard();
+    renderSales();
+    showToast('تم تسجيل الدفعة بنجاح');
+  }
+  hideLoading();
+}
+
+async function deleteFreePayment(paymentId, saleId) {
+  if (!confirm('هل تريد حذف هذه الدفعة؟')) return;
+  showLoading();
+  const ok = await DB.deletePayment(paymentId);
+  if (ok) {
+    await loadData();
+    renderPaymentPage(saleId);
+    updateDashboard();
+    renderSales();
+    showToast('تم حذف الدفعة');
+  }
+  hideLoading();
+}
+
+async function savePaymentMode(saleId) {
+  const mode = document.getElementById('payment-mode-select')?.value;
+  if (!mode) return;
+  showLoading();
+  const ok = await DB.updateSalePaymentMode(saleId, mode);
+  if (ok) {
+    await loadData();
+    renderPaymentPage(saleId);
+    renderSales();
+    showToast('تم تحديث نظام الدفع');
+  }
+  hideLoading();
 }
 
 // ============================================================

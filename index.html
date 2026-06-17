@@ -235,12 +235,19 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
     </div>
     <div class="stats-row">
       <div class="stat-card"><div class="stat-label">إجمالي المشاريع</div><div class="stat-value" id="total-projects">0</div><div class="stat-sub">مشروع مسجل</div></div>
-      <div class="stat-card gold"><div class="stat-label">إيرادات محصلة</div><div class="stat-value" id="total-revenue">0</div><div class="stat-sub">ج.م</div></div>
-      <div class="stat-card"><div class="stat-label">إجمالي التكاليف</div><div class="stat-value" id="total-costs">0</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card info"><div class="stat-label">إجمالي الإيرادات</div><div class="stat-value" id="total-expected">0</div><div class="stat-sub">قيمة العقود — ج.م</div></div>
+      <div class="stat-card gold"><div class="stat-label">إجمالي المحصّل</div><div class="stat-value" id="total-revenue">0</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card"><div class="stat-label">إجمالي المصاريف</div><div class="stat-value" id="total-costs">0</div><div class="stat-sub">ج.م</div></div>
       <div class="stat-card gold"><div class="stat-label">صافي الربح</div><div class="stat-value" id="net-profit">0</div><div class="stat-sub">ج.م</div></div>
-      <div class="stat-card info"><div class="stat-label">إجمالي المبيعات</div><div class="stat-value" id="total-expected">0</div><div class="stat-sub">قيمة متوقعة</div></div>
       <div class="stat-card danger"><div class="stat-label">متبقي تحصيله</div><div class="stat-value" id="total-remaining">0</div><div class="stat-sub">ج.م</div></div>
     </div>
+
+    <!-- التنبيهات -->
+    <div class="card">
+      <div class="card-hd"><div class="card-title">🔔 التنبيهات</div></div>
+      <div id="alerts-content"></div>
+    </div>
+
     <div class="charts-row">
       <div class="chart-card">
         <div class="chart-title">💰 الإيرادات مقابل التكاليف</div>
@@ -256,6 +263,13 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
       <div class="projects-grid" id="active-projects-grid">
         <div class="empty"><div class="empty-icon">🏗️</div><p>لا توجد مشاريع نشطة</p></div>
       </div>
+    </div>
+
+    <!-- مقارنة المشاريع (لوحة موحّدة) -->
+    <div class="card">
+      <div class="card-hd"><div class="card-title">📊 مقارنة المشاريع</div></div>
+      <div class="chart-wrap" style="height:280px;margin-bottom:1.5rem"><canvas id="chart-projects-comparison"></canvas></div>
+      <div class="projects-grid" id="projects-comparison-grid"></div>
     </div>
 
     <!-- لوحة الأقساط القادمة -->
@@ -320,11 +334,34 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
   <div id="reports-view" class="view">
     <div class="section-hd">
       <div class="section-title">📈 التقارير</div>
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <select id="report-month-filter" class="form-control" onchange="renderMonthlyReport()" style="padding:.4rem .75rem;font-size:.85rem;width:auto"></select>
+        <select id="report-year-filter" class="form-control" onchange="renderMonthlyReport()" style="padding:.4rem .75rem;font-size:.85rem;width:auto"></select>
         <button class="btn btn-ghost btn-sm" onclick="generateReport()">🔄 تحديث</button>
         <button class="btn btn-pdf btn-sm" onclick="exportMonthlyPDF()">📄 PDF شهري</button>
       </div>
     </div>
+
+    <!-- التقرير الشهري -->
+    <div class="card">
+      <div class="card-hd"><div class="card-title">📅 ملخص الشهر</div></div>
+      <div id="monthly-summary-stats" class="stats-row"></div>
+
+      <div class="charts-row" style="grid-template-columns:1.4fr 1fr">
+        <div class="chart-card">
+          <div class="chart-title">💸 المصروفات حسب الفئة</div>
+          <div id="monthly-expense-table"></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">🥧 توزيع المصروفات</div>
+          <div class="chart-wrap"><canvas id="chart-expense-breakdown"></canvas></div>
+        </div>
+      </div>
+
+      <div class="report-section-title" style="margin-top:1rem">💰 سجل التحصيلات هذا الشهر</div>
+      <div id="monthly-collections-table"></div>
+    </div>
+
     <div id="reports-content"></div>
   </div>
 </main>
@@ -491,6 +528,13 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
         <div class="form-group"><label class="form-label">طريقة الدفع *</label>
           <select class="form-control" name="paymentType" required onchange="toggleInstallmentFields()"><option value="cash">💵 كاش</option><option value="installment">📅 أقساط</option></select>
         </div>
+        <div class="form-group"><label class="form-label">نظام الدفع المرن *</label>
+          <select class="form-control" name="paymentMode" required>
+            <option value="free">🆓 حرة</option>
+            <option value="installments">📅 أقساط</option>
+            <option value="both">🔀 الاثنين</option>
+          </select>
+        </div>
       </div>
       <div id="installment-fields" style="display:none">
         <div class="form-grid">
@@ -548,6 +592,14 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
   <div class="modal-box" style="max-width:800px">
     <div class="modal-hd"><div class="modal-title" id="installments-modal-title">أقساط العميل</div><button class="modal-close" onclick="closeModal('installments-modal')">×</button></div>
     <div id="installments-modal-content"></div>
+  </div>
+</div>
+
+<!-- Payment Page (Flexible Payments) -->
+<div id="payment-page-modal" class="modal">
+  <div class="modal-box" style="max-width:820px">
+    <div class="modal-hd"><div class="modal-title" id="payment-page-title">💳 صفحة الدفع</div><button class="modal-close" onclick="closeModal('payment-page-modal')">×</button></div>
+    <div id="payment-page-content"></div>
   </div>
 </div>
 
