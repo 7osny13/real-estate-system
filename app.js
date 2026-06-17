@@ -1221,7 +1221,7 @@ function showSaleInstallments(saleId) {
       <div class="summary-card ${remaining > 0 ? 'danger' : ''}" style="padding:1rem"><div class="summary-label">المتبقي</div><div class="summary-value" style="font-size:1.5rem">${formatCurrency(remaining)}</div></div>
     </div>`;
 
-  const installmentsHtml = (sale.payments || []).map((inst, idx) => {
+  const installmentEntries = (sale.payments || []).map((inst, idx) => {
     const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
     const isOverdue = (inst.status === 'pending' || inst.status === 'partial') && due < today;
     const isDueSoon = !isOverdue && (inst.status === 'pending' || inst.status === 'partial') && (due - today) <= 7 * 24 * 60 * 60 * 1000;
@@ -1244,7 +1244,7 @@ function showSaleInstallments(saleId) {
           `<button class="btn btn-danger btn-xs" onclick="removePartialPayment('${saleId}', ${idx}, '${pp.id}')">🗑️</button>` : ''}
       </div>`).join('');
 
-    return `
+    const html = `
       <div style="border:2px solid ${isOverdue ? 'var(--danger)' : isDueSoon ? 'var(--warning)' : 'var(--border)'};border-radius:12px;padding:1rem;margin-bottom:1rem;background:white">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.5rem">
           <div>
@@ -1302,7 +1302,33 @@ function showSaleInstallments(saleId) {
             </div>`).join('') : ''}
         </div>
       </div>`;
-  }).join('');
+    return { sortDate: inst.dueDate || sale.saleDate, html };
+  });
+
+  // الدفعات الحرة (من جدول payments المستقل) — تُعرض كصفوف في نفس القائمة
+  const freeEntries = getFreePaymentsForSale(saleId).map(p => ({
+    sortDate: p.date,
+    html: `
+      <div style="border:2px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem;background:#fff">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.5rem">
+          <div>
+            <div style="font-weight:700;font-size:1.1rem;color:var(--primary)">🆓 دفعة حرة</div>
+            <div style="color:var(--text-muted);font-size:0.9rem">📅 ${formatDate(p.date)}</div>
+            ${p.notes ? `<div style="color:var(--text-muted);font-size:0.85rem;margin-top:0.35rem">📝 ${p.notes}</div>` : ''}
+          </div>
+          <div style="text-align:left">
+            <div style="font-weight:700;color:var(--gold);font-size:1.1rem">${formatCurrency(p.amount)} ج.م</div>
+            <span class="badge badge-gray">—</span>
+          </div>
+        </div>
+      </div>`
+  }));
+
+  // ادمج الأقساط والدفعات الحرة في قائمة واحدة، مرتبة بالتاريخ الأحدث أولاً
+  const installmentsHtml = [...installmentEntries, ...freeEntries]
+    .sort((a, b) => (a.sortDate < b.sortDate ? 1 : a.sortDate > b.sortDate ? -1 : 0))
+    .map(e => e.html)
+    .join('');
 
   content.innerHTML = summaryHtml + installmentsHtml;
   modal.classList.add('active');
