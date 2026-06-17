@@ -2310,7 +2310,7 @@ async function exportClientPDF(saleId) {
   const today = new Date(); today.setHours(0,0,0,0);
   const dateStr = new Date().toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
 
-  const installmentsRows = (sale.payments || []).map((inst, i) => {
+  const installmentRowEntries = (sale.payments || []).map((inst, i) => {
     const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
     const isOverdue = inst.status !== 'paid' && due < today;
     const statusBadge =
@@ -2318,8 +2318,8 @@ async function exportClientPDF(saleId) {
       inst.status === 'partial' ? '<span class="badge badge-orange">جزئي</span>'   :
       isOverdue                 ? '<span class="badge badge-red">متأخر !</span>'   :
                                   '<span class="badge badge-blue">قادم</span>';
-    return `<tr class="${isOverdue ? 'overdue' : ''}">
-      <td>${i + 1}</td>
+    const html = `<tr class="${isOverdue ? 'overdue' : ''}">
+      <td>#</td>
       <td>${inst.label || 'قسط ' + (i+1)}</td>
       <td>${formatCurrency(inst.totalAmount)} ج.م</td>
       <td>${formatDate(inst.dueDate)}</td>
@@ -2327,7 +2327,27 @@ async function exportClientPDF(saleId) {
       <td style="color:#c0392b;font-weight:700">${formatCurrency(inst.remainingAmount || 0)} ج.م</td>
       <td>${statusBadge}</td>
     </tr>`;
-  }).join('');
+    return { sortDate: inst.dueDate || sale.saleDate, html };
+  });
+
+  // الدفعات الحرة (من جدول payments المستقل) — تُدمج في نفس الجدول
+  const freeRowEntries = getFreePaymentsForSale(saleId).map(p => ({
+    sortDate: p.date,
+    html: `<tr>
+      <td>#</td>
+      <td>🆓 دفعة حرة</td>
+      <td>${formatCurrency(p.amount)} ج.م</td>
+      <td>${formatDate(p.date)}</td>
+      <td style="color:#1e7e4a;font-weight:700">${formatCurrency(p.amount)} ج.م</td>
+      <td style="color:#1e7e4a;font-weight:700">0.00 ج.م</td>
+      <td>${p.notes || '—'}</td>
+    </tr>`
+  }));
+
+  const installmentsRows = [...installmentRowEntries, ...freeRowEntries]
+    .sort((a, b) => (a.sortDate < b.sortDate ? 1 : a.sortDate > b.sortDate ? -1 : 0))
+    .map((e, i) => e.html.replace('<td>#</td>', `<td>${i + 1}</td>`))
+    .join('');
 
   const html = `
     <div class="pdf-header">
@@ -2352,7 +2372,7 @@ async function exportClientPDF(saleId) {
       <div class="summary-box ${remaining > 0 ? 'red' : 'green'}"><div class="lbl">المتبقي</div><div class="val">${formatCurrency(remaining)}</div><div class="lbl">ج.م</div></div>
     </div>
 
-    <div class="section-title">جدول الأقساط (${(sale.payments || []).length} قسط)</div>
+    <div class="section-title">جدول الأقساط والدفعات (${installmentRowEntries.length + freeRowEntries.length} بند)</div>
     <table>
       <thead><tr><th>#</th><th>البند</th><th>المبلغ</th><th>تاريخ الاستحقاق</th><th>المدفوع</th><th>المتبقي</th><th>الحالة</th></tr></thead>
       <tbody>${installmentsRows}</tbody>
@@ -2548,7 +2568,7 @@ function printClientPage(saleId) {
     .filter(i => i.status !== 'paid')
     .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))[0];
 
-  const instRows = (sale.payments || []).map((inst, i) => {
+  const instRowEntries = (sale.payments || []).map((inst, i) => {
     const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
     const isOverdue = inst.status !== 'paid' && due < today;
     const statusAr = inst.status === 'paid' ? '✓ مدفوع'
@@ -2556,15 +2576,34 @@ function printClientPage(saleId) {
       : isOverdue ? '! متأخر' : '◷ قادم';
     const color = inst.status === 'paid' ? '#1e7e4a'
       : isOverdue ? '#c0392b' : inst.status === 'partial' ? '#e67e22' : '#2471a3';
-    return `<tr>
-      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;text-align:center">${i+1}</td>
+    const html = `<tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;text-align:center">#</td>
       <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6">${inst.label || `القسط ${i+1}`}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700">${formatCurrency(inst.totalAmount)} ج.م</td>
       <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6">${formatDate(inst.dueDate)}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700;color:#1e7e4a">${formatCurrency(inst.paidAmount || 0)} ج.م</td>
       <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700;color:${color}">${statusAr}</td>
     </tr>`;
-  }).join('');
+    return { sortDate: inst.dueDate || sale.saleDate, html };
+  });
+
+  // الدفعات الحرة (من جدول payments المستقل) — تُدمج في نفس الجدول
+  const freeRowEntries = getFreePaymentsForSale(saleId).map(p => ({
+    sortDate: p.date,
+    html: `<tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;text-align:center">#</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6">🆓 دفعة حرة</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700">${formatCurrency(p.amount)} ج.م</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6">${formatDate(p.date)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700;color:#1e7e4a">${formatCurrency(p.amount)} ج.م</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;color:#6b6860">${p.notes || '—'}</td>
+    </tr>`
+  }));
+
+  const instRows = [...instRowEntries, ...freeRowEntries]
+    .sort((a, b) => (a.sortDate < b.sortDate ? 1 : a.sortDate > b.sortDate ? -1 : 0))
+    .map((e, i) => e.html.replace('>#<', `>${i + 1}<`))
+    .join('');
 
   const html = `
     <style>
