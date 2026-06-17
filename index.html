@@ -46,6 +46,18 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
 .nav-btn.active{background:var(--gold);color:var(--primary);box-shadow:0 2px 12px rgba(201,152,42,.4)}
 .badge-dot{position:absolute;top:4px;left:4px;background:#e74c3c;color:white;border-radius:10px;min-width:18px;height:18px;font-size:.65rem;display:none;align-items:center;justify-content:center;font-weight:700;padding:0 4px}
 
+/* GLOBAL SEARCH */
+.global-search{position:relative;flex:1;min-width:220px;max-width:380px}
+.global-search input{width:100%;padding:.55rem .9rem;border-radius:var(--radius-sm);border:1.5px solid transparent;background:rgba(255,255,255,.12);color:#fff;font-family:'Cairo',sans-serif;font-size:.88rem;transition:all .2s}
+.global-search input::placeholder{color:rgba(255,255,255,.6)}
+.global-search input:focus{outline:none;background:rgba(255,255,255,.18);border-color:var(--gold)}
+.global-search-results{position:absolute;top:calc(100% + 8px);right:0;left:0;background:var(--bg-card);border-radius:var(--radius-md);box-shadow:0 12px 32px rgba(0,0,0,.3);max-height:380px;overflow-y:auto;z-index:1500;display:none}
+.global-search-results.active{display:block}
+.gsr-item{display:flex;justify-content:space-between;align-items:center;gap:.75rem;padding:.75rem 1rem;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s}
+.gsr-item:last-child{border-bottom:none}
+.gsr-item:hover{background:var(--bg-subtle)}
+.gsr-empty{padding:1.25rem;text-align:center;color:var(--text-muted);font-size:.88rem}
+
 /* LAYOUT */
 .main{max-width:1440px;margin:0 auto;padding:2rem}
 .view{display:none}
@@ -210,6 +222,11 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
       <div class="logo-mark">🏗️</div>
       <span>إدارة المشاريع العقارية</span>
     </div>
+    <div class="global-search" id="global-search-wrap">
+      <input type="text" id="global-search-input" placeholder="🔍 بحث عن عميل، وحدة، هاتف، مشروع..."
+        oninput="handleGlobalSearch()" onkeydown="if(event.key==='Escape') closeGlobalSearch()" autocomplete="off">
+      <div class="global-search-results" id="global-search-results"></div>
+    </div>
     <nav class="nav">
       <button class="nav-btn active" onclick="showView('dashboard',this)">📊 لوحة التحكم</button>
       <button class="nav-btn" onclick="showView('projects',this)">🏢 المشاريع</button>
@@ -218,6 +235,7 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
         <span id="overdue-badge" class="badge-dot">0</span>
       </button>
       <button class="nav-btn" onclick="showView('reports',this)">📈 التقارير</button>
+      <button class="nav-btn" onclick="showView('monthly-report',this)">📅 التقرير الشهري</button>
     </nav>
   </div>
 </header>
@@ -363,6 +381,48 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
     </div>
 
     <div id="reports-content"></div>
+  </div>
+
+  <!-- MONTHLY QUICK REPORT -->
+  <div id="monthly-report-view" class="view">
+    <div class="section-hd">
+      <div class="section-title">📅 التقرير الشهري</div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <select id="mqr-month" class="form-control" onchange="renderMonthlyQuickReport()" style="padding:.4rem .75rem;font-size:.85rem;width:auto"></select>
+        <select id="mqr-year" class="form-control" onchange="renderMonthlyQuickReport()" style="padding:.4rem .75rem;font-size:.85rem;width:auto"></select>
+      </div>
+    </div>
+
+    <!-- التحصيلات -->
+    <div class="card">
+      <div class="card-hd"><div class="card-title">💰 التحصيلات</div></div>
+      <div class="stat-card gold" style="max-width:280px;margin-bottom:1.25rem">
+        <div class="stat-label">إجمالي الدفعات المحصّلة هذا الشهر</div>
+        <div class="stat-value" id="mqr-collections-total">0</div>
+        <div class="stat-sub">ج.م</div>
+      </div>
+      <div id="mqr-collections-list"></div>
+    </div>
+
+    <!-- المصاريف -->
+    <div class="card">
+      <div class="card-hd"><div class="card-title">💸 المصاريف</div></div>
+      <div class="stat-card danger" style="max-width:280px;margin-bottom:1.25rem">
+        <div class="stat-label">إجمالي المصاريف هذا الشهر</div>
+        <div class="stat-value" id="mqr-expenses-total">0</div>
+        <div class="stat-sub">ج.م</div>
+      </div>
+      <div class="report-section-title">تفصيل حسب الفئة</div>
+      <div id="mqr-expenses-by-category" style="margin-bottom:1.5rem"></div>
+      <div class="report-section-title">قائمة المصاريف</div>
+      <div id="mqr-expenses-list"></div>
+    </div>
+
+    <!-- الملخص -->
+    <div class="card">
+      <div class="card-hd"><div class="card-title">📊 الملخص</div></div>
+      <div class="stats-row" id="mqr-summary-stats"></div>
+    </div>
   </div>
 </main>
 

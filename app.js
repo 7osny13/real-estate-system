@@ -520,6 +520,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderSales();
   populateProjectSelects();
   checkOverdueInstallments();
+
+  document.addEventListener('click', e => {
+    const wrap = document.getElementById('global-search-wrap');
+    if (wrap && !wrap.contains(e.target)) closeGlobalSearch();
+  });
 });
 
 async function loadData() {
@@ -702,6 +707,55 @@ function showView(viewName, triggerEl) {
   if (viewName === 'projects') renderProjects();
   if (viewName === 'sales') renderSales();
   if (viewName === 'reports') generateReport();
+  if (viewName === 'monthly-report') renderMonthlyQuickReport();
+}
+
+// ============================================================
+// GLOBAL QUICK SEARCH (NEW)
+// ============================================================
+function handleGlobalSearch() {
+  const input = document.getElementById('global-search-input');
+  const resultsEl = document.getElementById('global-search-results');
+  if (!input || !resultsEl) return;
+
+  const q = input.value.trim().toLowerCase();
+  if (!q) { closeGlobalSearch(); return; }
+
+  const matches = sales.filter(sale => {
+    const project = projects.find(p => p.id === sale.projectId);
+    const haystack = `${sale.customerName} ${sale.unitNumber || ''} ${sale.customerPhone || ''} ${project?.projectName || ''}`.toLowerCase();
+    return haystack.includes(q);
+  }).slice(0, 15);
+
+  resultsEl.innerHTML = matches.length === 0
+    ? `<div class="gsr-empty">لا توجد نتائج</div>`
+    : matches.map(sale => {
+        const project = projects.find(p => p.id === sale.projectId);
+        const remaining = sale.totalPrice - getCombinedTotalPaid(sale);
+        return `
+          <div class="gsr-item" onclick="selectGlobalSearchResult('${sale.id}')">
+            <div>
+              <div style="font-weight:700;color:var(--primary)">${sale.customerName}</div>
+              <div style="font-size:.78rem;color:var(--text-muted)">🏠 ${sale.unitNumber || '—'} &nbsp;|&nbsp; 🏢 ${project?.projectName || '—'}</div>
+            </div>
+            <div style="font-weight:700;white-space:nowrap;color:${remaining > 0 ? 'var(--danger)' : 'var(--success)'}">${formatCurrency(remaining)} ج.م</div>
+          </div>`;
+      }).join('');
+
+  resultsEl.classList.add('active');
+}
+
+function selectGlobalSearchResult(saleId) {
+  closeGlobalSearch();
+  const input = document.getElementById('global-search-input');
+  if (input) input.value = '';
+  showView('sales', document.querySelectorAll('.nav-btn')[2]);
+  showSaleInstallments(saleId);
+}
+
+function closeGlobalSearch() {
+  const resultsEl = document.getElementById('global-search-results');
+  if (resultsEl) { resultsEl.classList.remove('active'); resultsEl.innerHTML = ''; }
 }
 
 // ============================================================
@@ -2010,6 +2064,118 @@ async function renderMonthlyReport() {
           <thead><tr><th>التاريخ</th><th>اسم العميل</th><th>المشروع</th><th>المبلغ</th></tr></thead>
           <tbody>${collections.map(c => `<tr><td>${formatDate(c.date)}</td><td>${c.customerName}</td><td>${c.projectName}</td><td style="font-weight:700;color:var(--gold)">${formatCurrency(c.amount)} ج.م</td></tr>`).join('')}</tbody>
         </table>`;
+  }
+}
+
+// ============================================================
+// التقرير الشهري السريع (NEW — تبويب مستقل) — التحصيلات/المصاريف/الملخص
+// ============================================================
+function populateMqrFilters() {
+  const monthSel = document.getElementById('mqr-month');
+  const yearSel = document.getElementById('mqr-year');
+  if (!monthSel || !yearSel) return;
+  if (monthSel.options.length > 0) return; // لا تعيد ضبط اختيار المستخدم
+
+  const months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+  monthSel.innerHTML = months.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+
+  const curYear = new Date().getFullYear();
+  let yearOptions = '';
+  for (let y = curYear - 3; y <= curYear + 1; y++) yearOptions += `<option value="${y}">${y}</option>`;
+  yearSel.innerHTML = yearOptions;
+
+  const today = new Date();
+  monthSel.value = today.getMonth() + 1;
+  yearSel.value = today.getFullYear();
+}
+
+async function renderMonthlyQuickReport() {
+  populateMqrFilters();
+  const monthSel = document.getElementById('mqr-month');
+  const yearSel = document.getElementById('mqr-year');
+  if (!monthSel || !yearSel || !monthSel.value || !yearSel.value) return;
+
+  const month = parseInt(monthSel.value);
+  const year = parseInt(yearSel.value);
+  const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+
+  // ── التحصيلات: الأقساط الثابتة المدفوعة هذا الشهر + الدفعات الحرة ──
+  const collections = [];
+  for (const sale of sales) {
+    const project = projects.find(p => p.id === sale.projectId);
+    (sale.payments || []).forEach(inst => (inst.partialPayments || []).forEach(pp => {
+      if ((pp.date || '').slice(0, 7) === monthKey) {
+        const type = inst.label === 'مقدم' ? 'مقدم' : inst.label === 'كاش' ? 'كاش' : 'قسط';
+        collections.push({ date: pp.date, customerName: sale.customerName, projectName: project?.projectName || '—', type, amount: parseFloat(pp.amount) || 0 });
+      }
+    }));
+  }
+  freePayments.forEach(p => {
+    if ((p.date || '').slice(0, 7) === monthKey) {
+      const sale = sales.find(s => s.id === p.saleId);
+      const project = sale ? projects.find(pr => pr.id === sale.projectId) : null;
+      collections.push({ date: p.date, customerName: sale?.customerName || '—', projectName: project?.projectName || '—', type: 'دفعة حرة', amount: p.amount });
+    }
+  });
+  collections.sort((a, b) => (a.date < b.date ? 1 : -1));
+  const totalCollected = collections.reduce((s, c) => s + c.amount, 0);
+
+  const collTotalEl = document.getElementById('mqr-collections-total');
+  if (collTotalEl) collTotalEl.textContent = formatCurrency(totalCollected);
+
+  const collListEl = document.getElementById('mqr-collections-list');
+  if (collListEl) {
+    collListEl.innerHTML = collections.length === 0
+      ? `<div class="empty" style="padding:1.5rem"><p>لا توجد دفعات هذا الشهر</p></div>`
+      : `<table class="report-table" style="width:100%">
+          <thead><tr><th>التاريخ</th><th>اسم العميل</th><th>المشروع</th><th>النوع</th><th>المبلغ</th></tr></thead>
+          <tbody>${collections.map(c => `<tr><td>${formatDate(c.date)}</td><td>${c.customerName}</td><td>${c.projectName}</td><td>${c.type}</td><td style="font-weight:700;color:var(--gold)">${formatCurrency(c.amount)} ج.م</td></tr>`).join('')}</tbody>
+        </table>`;
+  }
+
+  // ── المصاريف هذا الشهر ──
+  const allExpenses = await getAllExpenses();
+  const monthExpenses = allExpenses.filter(e => (e.date || '').slice(0, 7) === monthKey);
+  const totalExpensesMonth = monthExpenses.reduce((s, e) => s + e.amount, 0);
+
+  const expTotalEl = document.getElementById('mqr-expenses-total');
+  if (expTotalEl) expTotalEl.textContent = formatCurrency(totalExpensesMonth);
+
+  const categories = {};
+  monthExpenses.forEach(e => {
+    const key = getCategoryName(e.category, e.customCategory);
+    categories[key] = (categories[key] || 0) + e.amount;
+  });
+  const catEntries = Object.entries(categories);
+
+  const catEl = document.getElementById('mqr-expenses-by-category');
+  if (catEl) {
+    catEl.innerHTML = catEntries.length === 0
+      ? `<div class="empty" style="padding:1rem"><p>لا توجد مصروفات</p></div>`
+      : `<table class="report-table" style="width:100%">
+          <thead><tr><th>الفئة</th><th>المبلغ</th></tr></thead>
+          <tbody>${catEntries.map(([cat, amt]) => `<tr><td>${cat}</td><td style="font-weight:700;color:var(--gold)">${formatCurrency(amt)} ج.م</td></tr>`).join('')}</tbody>
+        </table>`;
+  }
+
+  const expListEl = document.getElementById('mqr-expenses-list');
+  if (expListEl) {
+    expListEl.innerHTML = monthExpenses.length === 0
+      ? `<div class="empty" style="padding:1.5rem"><p>لا توجد مصروفات هذا الشهر</p></div>`
+      : `<table class="report-table" style="width:100%">
+          <thead><tr><th>التاريخ</th><th>الفئة</th><th>المبلغ</th><th>البيان</th></tr></thead>
+          <tbody>${monthExpenses.map(e => `<tr><td>${formatDate(e.date)}</td><td>${getCategoryName(e.category, e.customCategory)}</td><td style="font-weight:700;color:var(--gold)">${formatCurrency(e.amount)} ج.م</td><td>${e.notes || e.recipient || '—'}</td></tr>`).join('')}</tbody>
+        </table>`;
+  }
+
+  // ── الملخص ──
+  const netMonth = totalCollected - totalExpensesMonth;
+  const summaryEl = document.getElementById('mqr-summary-stats');
+  if (summaryEl) {
+    summaryEl.innerHTML = `
+      <div class="stat-card gold"><div class="stat-label">إجمالي التحصيلات</div><div class="stat-value">${formatCurrency(totalCollected)}</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card danger"><div class="stat-label">إجمالي المصاريف</div><div class="stat-value">${formatCurrency(totalExpensesMonth)}</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card ${netMonth >= 0 ? 'gold' : 'danger'}"><div class="stat-label">صافي الشهر</div><div class="stat-value">${formatCurrency(netMonth)}</div><div class="stat-sub">ج.م</div></div>`;
   }
 }
 
