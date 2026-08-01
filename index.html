@@ -46,6 +46,18 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
 .nav-btn.active{background:var(--gold);color:var(--primary);box-shadow:0 2px 12px rgba(201,152,42,.4)}
 .badge-dot{position:absolute;top:4px;left:4px;background:#e74c3c;color:white;border-radius:10px;min-width:18px;height:18px;font-size:.65rem;display:none;align-items:center;justify-content:center;font-weight:700;padding:0 4px}
 
+/* GLOBAL SEARCH */
+.global-search{position:relative;flex:1;min-width:220px;max-width:380px}
+.global-search input{width:100%;padding:.55rem .9rem;border-radius:var(--radius-sm);border:1.5px solid transparent;background:rgba(255,255,255,.12);color:#fff;font-family:'Cairo',sans-serif;font-size:.88rem;transition:all .2s}
+.global-search input::placeholder{color:rgba(255,255,255,.6)}
+.global-search input:focus{outline:none;background:rgba(255,255,255,.18);border-color:var(--gold)}
+.global-search-results{position:absolute;top:calc(100% + 8px);right:0;left:0;background:var(--bg-card);border-radius:var(--radius-md);box-shadow:0 12px 32px rgba(0,0,0,.3);max-height:380px;overflow-y:auto;z-index:1500;display:none}
+.global-search-results.active{display:block}
+.gsr-item{display:flex;justify-content:space-between;align-items:center;gap:.75rem;padding:.75rem 1rem;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s}
+.gsr-item:last-child{border-bottom:none}
+.gsr-item:hover{background:var(--bg-subtle)}
+.gsr-empty{padding:1.25rem;text-align:center;color:var(--text-muted);font-size:.88rem}
+
 /* LAYOUT */
 .main{max-width:1440px;margin:0 auto;padding:2rem}
 .view{display:none}
@@ -210,6 +222,11 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
       <div class="logo-mark">🏗️</div>
       <span>إدارة المشاريع العقارية</span>
     </div>
+    <div class="global-search" id="global-search-wrap">
+      <input type="text" id="global-search-input" placeholder="🔍 بحث عن عميل، وحدة، هاتف، مشروع..."
+        oninput="handleGlobalSearch()" onkeydown="if(event.key==='Escape') closeGlobalSearch()" autocomplete="off">
+      <div class="global-search-results" id="global-search-results"></div>
+    </div>
     <nav class="nav">
       <button class="nav-btn active" onclick="showView('dashboard',this)">📊 لوحة التحكم</button>
       <button class="nav-btn" onclick="showView('projects',this)">🏢 المشاريع</button>
@@ -217,8 +234,8 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
         💰 المبيعات
         <span id="overdue-badge" class="badge-dot">0</span>
       </button>
-      <button class="nav-btn" onclick="showView('units',this)">🏠 الوحدات</button>
       <button class="nav-btn" onclick="showView('reports',this)">📈 التقارير</button>
+      <button class="nav-btn" onclick="showView('monthly-report',this)">📅 التقرير الشهري</button>
     </nav>
   </div>
 </header>
@@ -236,12 +253,19 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
     </div>
     <div class="stats-row">
       <div class="stat-card"><div class="stat-label">إجمالي المشاريع</div><div class="stat-value" id="total-projects">0</div><div class="stat-sub">مشروع مسجل</div></div>
-      <div class="stat-card gold"><div class="stat-label">إيرادات محصلة</div><div class="stat-value" id="total-revenue">0</div><div class="stat-sub">ج.م</div></div>
-      <div class="stat-card"><div class="stat-label">إجمالي التكاليف</div><div class="stat-value" id="total-costs">0</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card info"><div class="stat-label">إجمالي الإيرادات</div><div class="stat-value" id="total-expected">0</div><div class="stat-sub">قيمة العقود — ج.م</div></div>
+      <div class="stat-card gold"><div class="stat-label">إجمالي المحصّل</div><div class="stat-value" id="total-revenue">0</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card"><div class="stat-label">إجمالي المصاريف</div><div class="stat-value" id="total-costs">0</div><div class="stat-sub">ج.م</div></div>
       <div class="stat-card gold"><div class="stat-label">صافي الربح</div><div class="stat-value" id="net-profit">0</div><div class="stat-sub">ج.م</div></div>
-      <div class="stat-card info"><div class="stat-label">إجمالي المبيعات</div><div class="stat-value" id="total-expected">0</div><div class="stat-sub">قيمة متوقعة</div></div>
       <div class="stat-card danger"><div class="stat-label">متبقي تحصيله</div><div class="stat-value" id="total-remaining">0</div><div class="stat-sub">ج.م</div></div>
     </div>
+
+    <!-- التنبيهات -->
+    <div class="card">
+      <div class="card-hd"><div class="card-title">🔔 التنبيهات</div></div>
+      <div id="alerts-content"></div>
+    </div>
+
     <div class="charts-row">
       <div class="chart-card">
         <div class="chart-title">💰 الإيرادات مقابل التكاليف</div>
@@ -257,6 +281,13 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
       <div class="projects-grid" id="active-projects-grid">
         <div class="empty"><div class="empty-icon">🏗️</div><p>لا توجد مشاريع نشطة</p></div>
       </div>
+    </div>
+
+    <!-- مقارنة المشاريع (لوحة موحّدة) -->
+    <div class="card">
+      <div class="card-hd"><div class="card-title">📊 مقارنة المشاريع</div></div>
+      <div class="chart-wrap" style="height:280px;margin-bottom:1.5rem"><canvas id="chart-projects-comparison"></canvas></div>
+      <div class="projects-grid" id="projects-comparison-grid"></div>
     </div>
 
     <!-- لوحة الأقساط القادمة -->
@@ -317,66 +348,81 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
     <div id="sales-list"></div>
   </div>
 
-  <!-- UNITS -->
-  <div id="units-view" class="view">
-    <div class="section-hd">
-      <div class="section-title">🏠 الوحدات</div>
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-        <button class="btn btn-primary" onclick="openAddUnitModal()">➕ إضافة وحدة</button>
-        <button class="btn btn-pdf btn-sm" onclick="exportBrokerPDF()">📄 ملف السماسرة</button>
-      </div>
-    </div>
-
-    <!-- إحصائيات الوحدات -->
-    <div class="stats-row" style="margin-bottom:1.25rem">
-      <div class="stat-card"  style="--c:var(--primary)"><div class="stat-label">إجمالي الوحدات</div><div class="stat-value" id="u-stat-total">0</div></div>
-      <div class="stat-card"  style="--c:var(--success)"><div class="stat-label">متاح</div><div class="stat-value" id="u-stat-available" style="color:var(--success)">0</div></div>
-      <div class="stat-card"  style="--c:var(--warning)"><div class="stat-label">محجوز</div><div class="stat-value" id="u-stat-reserved" style="color:var(--warning)">0</div></div>
-      <div class="stat-card"  style="--c:var(--danger)"><div class="stat-label">مباع</div><div class="stat-value" id="u-stat-sold" style="color:var(--danger)">0</div></div>
-      <div class="stat-card gold"><div class="stat-label">قيمة المتاح</div><div class="stat-value" id="u-stat-value" style="font-size:1.1rem">0</div></div>
-    </div>
-
-    <!-- فلاتر الوحدات -->
-    <div style="background:var(--bg-card);border-radius:var(--radius-md);padding:1rem 1.25rem;margin-bottom:1.25rem;border:1px solid var(--border);display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
-      <input type="text" id="u-search" class="form-control" placeholder="🔍 رقم وحدة أو اسم عميل..."
-        oninput="applyUnitFilters()" style="flex:1;min-width:180px;padding:.6rem .9rem">
-      <select id="u-filter-project" class="form-control" onchange="applyUnitFilters()" style="min-width:140px;padding:.6rem .9rem">
-        <option value="">كل المشاريع</option>
-      </select>
-      <select id="u-filter-type" class="form-control" onchange="applyUnitFilters()" style="min-width:130px;padding:.6rem .9rem">
-        <option value="">كل الأنواع</option>
-        <option value="apartment">🏠 شقة</option>
-        <option value="shop">🏪 محل</option>
-        <option value="duplex">🏰 دوبلكس</option>
-        <option value="other">📦 أخرى</option>
-      </select>
-      <select id="u-filter-status" class="form-control" onchange="applyUnitFilters()" style="min-width:130px;padding:.6rem .9rem">
-        <option value="">كل الحالات</option>
-        <option value="available">✅ متاح</option>
-        <option value="reserved">🟡 محجوز</option>
-        <option value="sold">🔴 مباع</option>
-      </select>
-      <div style="display:flex;gap:4px;background:var(--bg-subtle);border-radius:var(--radius-sm);padding:3px">
-        <button class="nav-btn active" id="u-btn-grid" onclick="setUnitView('grid')" style="padding:.35rem .7rem;font-size:.8rem">⊞</button>
-        <button class="nav-btn" id="u-btn-table" onclick="setUnitView('table')" style="padding:.35rem .7rem;font-size:.8rem">☰</button>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="clearUnitFilters()">✕ مسح</button>
-      <span id="u-filter-count" style="font-size:.82rem;color:var(--text-muted);white-space:nowrap"></span>
-    </div>
-
-    <div id="units-container"></div>
-  </div>
-
   <!-- REPORTS -->
   <div id="reports-view" class="view">
     <div class="section-hd">
       <div class="section-title">📈 التقارير</div>
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <select id="report-month-filter" class="form-control" onchange="renderMonthlyReport()" style="padding:.4rem .75rem;font-size:.85rem;width:auto"></select>
+        <select id="report-year-filter" class="form-control" onchange="renderMonthlyReport()" style="padding:.4rem .75rem;font-size:.85rem;width:auto"></select>
         <button class="btn btn-ghost btn-sm" onclick="generateReport()">🔄 تحديث</button>
         <button class="btn btn-pdf btn-sm" onclick="exportMonthlyPDF()">📄 PDF شهري</button>
       </div>
     </div>
+
+    <!-- التقرير الشهري -->
+    <div class="card">
+      <div class="card-hd"><div class="card-title">📅 ملخص الشهر</div></div>
+      <div id="monthly-summary-stats" class="stats-row"></div>
+
+      <div class="charts-row" style="grid-template-columns:1.4fr 1fr">
+        <div class="chart-card">
+          <div class="chart-title">💸 المصروفات حسب الفئة</div>
+          <div id="monthly-expense-table"></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">🥧 توزيع المصروفات</div>
+          <div class="chart-wrap"><canvas id="chart-expense-breakdown"></canvas></div>
+        </div>
+      </div>
+
+      <div class="report-section-title" style="margin-top:1rem">💰 سجل التحصيلات هذا الشهر</div>
+      <div id="monthly-collections-table"></div>
+    </div>
+
     <div id="reports-content"></div>
+  </div>
+
+  <!-- MONTHLY QUICK REPORT -->
+  <div id="monthly-report-view" class="view">
+    <div class="section-hd">
+      <div class="section-title">📅 التقرير الشهري</div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+        <select id="mqr-month" class="form-control" onchange="renderMonthlyQuickReport()" style="padding:.4rem .75rem;font-size:.85rem;width:auto"></select>
+        <select id="mqr-year" class="form-control" onchange="renderMonthlyQuickReport()" style="padding:.4rem .75rem;font-size:.85rem;width:auto"></select>
+      </div>
+    </div>
+
+    <!-- التحصيلات -->
+    <div class="card">
+      <div class="card-hd"><div class="card-title">💰 التحصيلات</div></div>
+      <div class="stat-card gold" style="max-width:280px;margin-bottom:1.25rem">
+        <div class="stat-label">إجمالي الدفعات المحصّلة هذا الشهر</div>
+        <div class="stat-value" id="mqr-collections-total">0</div>
+        <div class="stat-sub">ج.م</div>
+      </div>
+      <div id="mqr-collections-list"></div>
+    </div>
+
+    <!-- المصاريف -->
+    <div class="card">
+      <div class="card-hd"><div class="card-title">💸 المصاريف</div></div>
+      <div class="stat-card danger" style="max-width:280px;margin-bottom:1.25rem">
+        <div class="stat-label">إجمالي المصاريف هذا الشهر</div>
+        <div class="stat-value" id="mqr-expenses-total">0</div>
+        <div class="stat-sub">ج.م</div>
+      </div>
+      <div class="report-section-title">تفصيل حسب الفئة</div>
+      <div id="mqr-expenses-by-category" style="margin-bottom:1.5rem"></div>
+      <div class="report-section-title">قائمة المصاريف</div>
+      <div id="mqr-expenses-list"></div>
+    </div>
+
+    <!-- الملخص -->
+    <div class="card">
+      <div class="card-hd"><div class="card-title">📊 الملخص</div></div>
+      <div class="stats-row" id="mqr-summary-stats"></div>
+    </div>
   </div>
 </main>
 
@@ -542,6 +588,13 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
         <div class="form-group"><label class="form-label">طريقة الدفع *</label>
           <select class="form-control" name="paymentType" required onchange="toggleInstallmentFields()"><option value="cash">💵 كاش</option><option value="installment">📅 أقساط</option></select>
         </div>
+        <div class="form-group"><label class="form-label">نظام الدفع المرن *</label>
+          <select class="form-control" name="paymentMode" required>
+            <option value="free">🆓 حرة</option>
+            <option value="installments">📅 أقساط</option>
+            <option value="both">🔀 الاثنين</option>
+          </select>
+        </div>
       </div>
       <div id="installment-fields" style="display:none">
         <div class="form-grid">
@@ -602,6 +655,14 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
   </div>
 </div>
 
+<!-- Payment Page (Flexible Payments) -->
+<div id="payment-page-modal" class="modal">
+  <div class="modal-box" style="max-width:820px">
+    <div class="modal-hd"><div class="modal-title" id="payment-page-title">💳 صفحة الدفع</div><button class="modal-close" onclick="closeModal('payment-page-modal')">×</button></div>
+    <div id="payment-page-content"></div>
+  </div>
+</div>
+
 <!-- Sale Files Modal -->
 <div id="sale-files-modal" class="modal">
   <div class="modal-box" style="max-width:700px">
@@ -615,116 +676,6 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
       <div style="font-size:.82rem;color:var(--text-muted);margin-top:.5rem">JPG, PNG, PDF — حجم أقصى 10MB</div>
     </div>
     <div id="sale-files-list"></div>
-  </div>
-</div>
-
-<!-- Unit Add/Edit Modal -->
-<div id="unit-modal" class="modal">
-  <div class="modal-box" style="max-width:800px">
-    <div class="modal-hd">
-      <div class="modal-title" id="unit-modal-title">➕ إضافة وحدة جديدة</div>
-      <button class="modal-close" onclick="closeModal('unit-modal')">×</button>
-    </div>
-    <form id="unit-form" onsubmit="saveUnit(event)">
-      <input type="hidden" id="unit-id">
-      <div class="form-section">🏢 بيانات الوحدة</div>
-      <div class="form-grid">
-        <div class="form-group"><label class="form-label">المشروع *</label>
-          <select class="form-control" id="unit-project" required><option value="">اختر المشروع</option></select>
-        </div>
-        <div class="form-group"><label class="form-label">نوع الوحدة *</label>
-          <select class="form-control" id="unit-type" required>
-            <option value="">اختر</option>
-            <option value="apartment">🏠 شقة</option>
-            <option value="shop">🏪 محل</option>
-            <option value="duplex">🏰 دوبلكس</option>
-            <option value="other">📦 أخرى</option>
-          </select>
-        </div>
-        <div class="form-group"><label class="form-label">رقم الوحدة *</label>
-          <input type="text" class="form-control" id="unit-number" required placeholder="مثال: A101">
-        </div>
-        <div class="form-group"><label class="form-label">الدور</label>
-          <input type="number" class="form-control" id="unit-floor" min="0" value="0">
-        </div>
-      </div>
-      <div class="form-section">📐 المواصفات</div>
-      <div class="form-grid">
-        <div class="form-group"><label class="form-label">المساحة (م²)</label>
-          <input type="number" class="form-control" id="unit-area" min="0" step="0.01" value="0">
-        </div>
-        <div class="form-group"><label class="form-label">الاتجاه</label>
-          <select class="form-control" id="unit-direction">
-            <option value="">—</option>
-            <option value="north">شمال</option><option value="south">جنوب</option>
-            <option value="east">شرق</option><option value="west">غرب</option>
-            <option value="north-east">شمال شرق</option><option value="north-west">شمال غرب</option>
-            <option value="south-east">جنوب شرق</option><option value="south-west">جنوب غرب</option>
-            <option value="street">على الشارع</option>
-          </select>
-        </div>
-        <div class="form-group"><label class="form-label">السعر (ج.م)</label>
-          <input type="number" class="form-control" id="unit-price" min="0" step="0.01" value="0">
-        </div>
-      </div>
-      <div class="form-section">📋 الحالة</div>
-      <div class="form-grid">
-        <div class="form-group"><label class="form-label">الحالة *</label>
-          <select class="form-control" id="unit-status" required onchange="toggleUnitReservedBy()">
-            <option value="available">✅ متاح</option>
-            <option value="reserved">🟡 محجوز</option>
-            <option value="sold">🔴 مباع</option>
-          </select>
-        </div>
-        <div class="form-group" id="unit-reserved-by-group" style="display:none">
-          <label class="form-label">محجوز/مباع لـ</label>
-          <input type="text" class="form-control" id="unit-reserved-by" placeholder="اسم العميل أو السمسار">
-        </div>
-      </div>
-      <div class="form-group"><label class="form-label">ملاحظات</label>
-        <textarea class="form-control" id="unit-notes" rows="2"></textarea>
-      </div>
-      <div style="display:flex;gap:.75rem;margin-top:1.5rem">
-        <button type="submit" class="btn btn-primary" style="flex:1">✅ حفظ</button>
-        <button type="button" class="btn btn-ghost" onclick="closeModal('unit-modal')" style="flex:1">إلغاء</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Unit Status Modal -->
-<div id="unit-status-modal" class="modal">
-  <div class="modal-box" style="max-width:480px">
-    <div class="modal-hd">
-      <div class="modal-title" id="unit-status-modal-title">تغيير الحالة</div>
-      <button class="modal-close" onclick="closeModal('unit-status-modal')">×</button>
-    </div>
-    <input type="hidden" id="unit-status-id">
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin:1.25rem 0">
-      <div onclick="selectUnitStatus('available')" id="ustatus-available"
-        style="border:2px solid var(--border);border-radius:var(--radius-md);padding:1rem;text-align:center;cursor:pointer;transition:all .2s">
-        <div style="font-size:2rem;margin-bottom:.4rem">✅</div>
-        <div style="font-weight:700;color:var(--success)">متاح</div>
-      </div>
-      <div onclick="selectUnitStatus('reserved')" id="ustatus-reserved"
-        style="border:2px solid var(--border);border-radius:var(--radius-md);padding:1rem;text-align:center;cursor:pointer;transition:all .2s">
-        <div style="font-size:2rem;margin-bottom:.4rem">🟡</div>
-        <div style="font-weight:700;color:var(--warning)">محجوز</div>
-      </div>
-      <div onclick="selectUnitStatus('sold')" id="ustatus-sold"
-        style="border:2px solid var(--border);border-radius:var(--radius-md);padding:1rem;text-align:center;cursor:pointer;transition:all .2s">
-        <div style="font-size:2rem;margin-bottom:.4rem">🔴</div>
-        <div style="font-weight:700;color:var(--danger)">مباع</div>
-      </div>
-    </div>
-    <div class="form-group" id="unit-status-name-group" style="display:none;margin-bottom:1rem">
-      <label class="form-label" id="unit-status-name-label">محجوز لـ</label>
-      <input type="text" class="form-control" id="unit-status-reserved-by" placeholder="اسم العميل أو السمسار">
-    </div>
-    <div style="display:flex;gap:.75rem">
-      <button class="btn btn-primary" style="flex:1" onclick="confirmUnitStatus()">✅ تأكيد</button>
-      <button class="btn btn-ghost" style="flex:1" onclick="closeModal('unit-status-modal')">إلغاء</button>
-    </div>
   </div>
 </div>
 
