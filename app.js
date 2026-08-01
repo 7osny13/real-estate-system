@@ -137,6 +137,7 @@ const DB = {
       total_price: sale.totalPrice,
       payment_type: sale.paymentType,
       down_payment: sale.downPayment || 0,
+      payment_mode: sale.paymentMode || 'free',
       installments_count: sale.installments ? sale.installments.length : 0,
       notes: sale.notes || '',
       // NEW: store flexible installments array
@@ -340,6 +341,50 @@ const DB = {
       await this.supabase.from('sales').update({ payments, updated_at: new Date().toISOString() }).eq('id', saleId);
     }
     await this.deleteFile(filePath);
+  },
+
+  // ══════════════════════════════════════════════════════════
+  // FLEXIBLE PAYMENTS — جدول payments المستقل (نظام الدفع الحر)
+  // ══════════════════════════════════════════════════════════
+  async getPayments() {
+    const { data, error } = await this.supabase
+      .from('payments').select('*').order('date', { ascending: false });
+    if (error) { console.error(error); return []; }
+    return data.map(mapPayment);
+  },
+
+  async getSalePayments(saleId) {
+    const { data, error } = await this.supabase
+      .from('payments').select('*').eq('sale_id', saleId).order('date', { ascending: false });
+    if (error) { console.error(error); return []; }
+    return data.map(mapPayment);
+  },
+
+  async addPayment(payment) {
+    const row = {
+      id: crypto.randomUUID(),
+      sale_id: payment.saleId,
+      amount: payment.amount,
+      date: payment.date,
+      due_date: payment.dueDate || null,
+      notes: payment.notes || ''
+    };
+    const { data, error } = await this.supabase.from('payments').insert([row]).select();
+    if (error) { console.error(error); showToast('خطأ في إضافة الدفعة', 'error'); return null; }
+    return mapPayment(data[0]);
+  },
+
+  async deletePayment(id) {
+    const { error } = await this.supabase.from('payments').delete().eq('id', id);
+    if (error) { console.error(error); showToast('خطأ في حذف الدفعة', 'error'); return false; }
+    return true;
+  },
+
+  async updateSalePaymentMode(saleId, mode) {
+    const { error } = await this.supabase
+      .from('sales').update({ payment_mode: mode, updated_at: new Date().toISOString() }).eq('id', saleId);
+    if (error) { console.error(error); showToast('خطأ في تحديث نظام الدفع', 'error'); return false; }
+    return true;
   }
 };
 
@@ -384,12 +429,25 @@ function mapSale(s) {
     totalPrice: parseFloat(s.total_price),
     paymentType: s.payment_type,
     downPayment: parseFloat(s.down_payment) || 0,
+    paymentMode: s.payment_mode || 'free',
     installmentsCount: s.installments_count || 0,
     notes: s.notes,
     notesCrm: s.notes_crm || '',
     payments: s.payments || [],
     files: Array.isArray(s.files) ? s.files : [],
     createdAt: s.created_at
+  };
+}
+
+function mapPayment(row) {
+  return {
+    id: row.id,
+    saleId: row.sale_id,
+    amount: parseFloat(row.amount),
+    date: row.date,
+    dueDate: row.due_date,
+    notes: row.notes || '',
+    createdAt: row.created_at
   };
 }
 
@@ -437,6 +495,7 @@ function buildInstallmentsArray(sale) {
 // ============================================================
 let projects = [];
 let sales = [];
+let freePayments = [];
 
 // ============================================================
 // INIT
@@ -461,11 +520,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderSales();
   populateProjectSelects();
   checkOverdueInstallments();
+
+  document.addEventListener('click', e => {
+    const wrap = document.getElementById('global-search-wrap');
+    if (wrap && !wrap.contains(e.target)) closeGlobalSearch();
+  });
 });
 
 async function loadData() {
   try {
-    [projects, sales] = await Promise.all([DB.getProjects(), DB.getSales()]);
+    [projects, sales, freePayments] = await Promise.all([DB.getProjects(), DB.getSales(), DB.getPayments()]);
   } catch (err) {
     console.error(err);
     showToast('خطأ في تحميل البيانات', 'error');
@@ -635,15 +699,63 @@ function hideLoading() {
 // ============================================================
 function showView(viewName, triggerEl) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('.nav-btn,.nav-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   document.getElementById(`${viewName}-view`).classList.add('active');
   (triggerEl || event?.target)?.classList.add('active');
 
   if (viewName === 'dashboard') { updateDashboard(); checkOverdueInstallments(); }
-  if (viewName === 'projects')  renderProjects();
-  if (viewName === 'sales')     renderSales();
-  if (viewName === 'units')     initUnitsView();
-  if (viewName === 'reports')   generateReport();
+  if (viewName === 'projects') renderProjects();
+  if (viewName === 'sales') renderSales();
+  if (viewName === 'reports') generateReport();
+  if (viewName === 'monthly-report') renderMonthlyQuickReport();
+}
+
+// ============================================================
+// GLOBAL QUICK SEARCH (NEW)
+// ============================================================
+function handleGlobalSearch() {
+  const input = document.getElementById('global-search-input');
+  const resultsEl = document.getElementById('global-search-results');
+  if (!input || !resultsEl) return;
+
+  const q = input.value.trim().toLowerCase();
+  if (!q) { closeGlobalSearch(); return; }
+
+  const matches = sales.filter(sale => {
+    const project = projects.find(p => p.id === sale.projectId);
+    const haystack = `${sale.customerName} ${sale.unitNumber || ''} ${sale.customerPhone || ''} ${project?.projectName || ''}`.toLowerCase();
+    return haystack.includes(q);
+  }).slice(0, 15);
+
+  resultsEl.innerHTML = matches.length === 0
+    ? `<div class="gsr-empty">لا توجد نتائج</div>`
+    : matches.map(sale => {
+        const project = projects.find(p => p.id === sale.projectId);
+        const remaining = sale.totalPrice - getCombinedTotalPaid(sale);
+        return `
+          <div class="gsr-item" onclick="selectGlobalSearchResult('${sale.id}')">
+            <div>
+              <div style="font-weight:700;color:var(--primary)">${sale.customerName}</div>
+              <div style="font-size:.78rem;color:var(--text-muted)">🏠 ${sale.unitNumber || '—'} &nbsp;|&nbsp; 🏢 ${project?.projectName || '—'}</div>
+            </div>
+            <div style="font-weight:700;white-space:nowrap;color:${remaining > 0 ? 'var(--danger)' : 'var(--success)'}">${formatCurrency(remaining)} ج.م</div>
+          </div>`;
+      }).join('');
+
+  resultsEl.classList.add('active');
+}
+
+function selectGlobalSearchResult(saleId) {
+  closeGlobalSearch();
+  const input = document.getElementById('global-search-input');
+  if (input) input.value = '';
+  showView('sales', document.querySelectorAll('.nav-btn')[2]);
+  showSaleInstallments(saleId);
+}
+
+function closeGlobalSearch() {
+  const resultsEl = document.getElementById('global-search-results');
+  if (resultsEl) { resultsEl.classList.remove('active'); resultsEl.innerHTML = ''; }
 }
 
 // ============================================================
@@ -657,7 +769,7 @@ async function updateDashboard() {
 
   let totalPaid = 0, totalCosts = 0, totalExpected = 0;
   for (const p of projects) totalCosts += await calculateProjectCosts(p.id);
-  totalPaid = sales.reduce((s, sale) => s + getTotalPaid(sale), 0);
+  totalPaid = sales.reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
   totalExpected = sales.reduce((s, sale) => s + sale.totalPrice, 0);
   const totalRemaining = totalExpected - totalPaid;
   const netProfit = totalPaid - totalCosts;
@@ -681,8 +793,90 @@ async function updateDashboard() {
   // Charts
   renderCharts(totalPaid, totalCosts);
 
+  // مقارنة المشاريع
+  renderProjectsComparison();
+
+  // التنبيهات
+  renderPaymentAlerts();
+
   // لوحة الأقساط القادمة
   renderUpcomingInstallments();
+}
+
+// ============================================================
+// مقارنة المشاريع (NEW — موحّدة لكل المشاريع)
+// ============================================================
+let chartProjectsComparison = null;
+
+async function renderProjectsComparison() {
+  const grid = document.getElementById('projects-comparison-grid');
+  if (!grid) return;
+
+  const cards = [];
+  const labels = [], revenueData = [], expensesData = [], profitData = [];
+
+  for (const p of projects) {
+    const projectSales = sales.filter(s => s.projectId === p.id);
+    const totalUnits = (p.apartmentsCount || 0) + (p.shopsCount || 0);
+    const sold = projectSales.length;
+    const available = Math.max(totalUnits - sold, 0);
+    const expectedRev = projectSales.reduce((s, sale) => s + sale.totalPrice, 0);
+    const collected = projectSales.reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
+    const costs = await calculateProjectCosts(p.id);
+    const profit = collected - costs;
+
+    labels.push(p.projectName.length > 14 ? p.projectName.slice(0, 14) + '…' : p.projectName);
+    revenueData.push(expectedRev);
+    expensesData.push(costs);
+    profitData.push(profit);
+
+    cards.push(`
+      <div class="proj-card" onclick="showProjectDetails('${p.id}')">
+        <div class="proj-bar"></div>
+        <div class="proj-body">
+          <div class="proj-name">${p.projectName}</div>
+          <div class="proj-stats-grid">
+            <div class="proj-stat"><div class="proj-stat-val">${totalUnits}</div><div class="proj-stat-lbl">إجمالي الوحدات</div></div>
+            <div class="proj-stat"><div class="proj-stat-val">${sold}</div><div class="proj-stat-lbl">مباعة</div></div>
+            <div class="proj-stat"><div class="proj-stat-val">${available}</div><div class="proj-stat-lbl">متاحة</div></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:.3rem;font-size:.82rem;margin-top:.65rem">
+            <div>إجمالي الإيرادات: <strong style="color:var(--info)">${formatCurrency(expectedRev)} ج.م</strong></div>
+            <div>إجمالي المحصّل: <strong style="color:var(--gold)">${formatCurrency(collected)} ج.م</strong></div>
+            <div>إجمالي المصاريف: <strong style="color:var(--danger)">${formatCurrency(costs)} ج.م</strong></div>
+            <div>صافي الربح: <strong style="color:${profit >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatCurrency(profit)} ج.م</strong></div>
+          </div>
+        </div>
+      </div>`);
+  }
+
+  grid.innerHTML = cards.length === 0
+    ? `<div class="empty"><div class="empty-icon">🏢</div><p>لا توجد مشاريع بعد</p></div>`
+    : cards.join('');
+
+  const ctx = document.getElementById('chart-projects-comparison');
+  if (ctx) {
+    if (chartProjectsComparison) chartProjectsComparison.destroy();
+    chartProjectsComparison = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'الإيرادات', data: revenueData, backgroundColor: 'rgba(36,113,163,0.8)', borderRadius: 6 },
+          { label: 'المصاريف', data: expensesData, backgroundColor: 'rgba(192,57,43,0.75)', borderRadius: 6 },
+          { label: 'صافي الربح', data: profitData, backgroundColor: 'rgba(201,152,42,0.85)', borderRadius: 6 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { font: { family: 'Cairo', size: 11 }, boxWidth: 14 } } },
+        scales: {
+          x: { ticks: { font: { family: 'Cairo', size: 10 } } },
+          y: { ticks: { font: { family: 'Cairo', size: 10 }, callback: v => (v / 1000) + 'k' } }
+        }
+      }
+    });
+  }
 }
 
 // ============================================================
@@ -776,6 +970,81 @@ function renderUpcomingInstallments() {
       متأخرة: <strong style="color:var(--danger)">${items.filter(i => i.isOverdue).length}</strong> —
       قادمة: <strong style="color:var(--info)">${items.filter(i => !i.isOverdue).length}</strong>
     </div>`;
+}
+
+// ============================================================
+// DASHBOARD ALERTS (NEW) — عاجل / تنبيه / مكتمل
+// ============================================================
+function quickAddPayment(saleId) {
+  showAddPaymentForm = true;
+  renderPaymentPage(saleId);
+  document.getElementById('payment-page-modal').classList.add('active');
+}
+
+function renderPaymentAlerts() {
+  const container = document.getElementById('alerts-content');
+  if (!container) return;
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const currentMonthKey = today.toISOString().slice(0, 7);
+
+  const urgent = [], warning = [], complete = [];
+
+  for (const sale of sales) {
+    const project = projects.find(p => p.id === sale.projectId);
+    const remaining = sale.totalPrice - getCombinedTotalPaid(sale);
+    const lastPaymentDate = getLastPaymentDate(sale);
+    const refDateStr = lastPaymentDate || sale.saleDate;
+    const refDate = new Date(refDateStr); refDate.setHours(0, 0, 0, 0);
+    const daysSince = Math.floor((today - refDate) / 86400000);
+
+    const item = { sale, project, remaining, lastPaymentDate };
+
+    if (remaining <= 0.01) {
+      complete.push(item);
+    } else if (daysSince > 30) {
+      urgent.push(item);
+    } else {
+      const paidThisMonth = lastPaymentDate && lastPaymentDate.slice(0, 7) === currentMonthKey;
+      if (!paidThisMonth) warning.push(item);
+    }
+  }
+
+  const byOldestPayment = (a, b) => (a.lastPaymentDate || a.sale.saleDate) < (b.lastPaymentDate || b.sale.saleDate) ? -1 : 1;
+  urgent.sort(byOldestPayment);
+  warning.sort(byOldestPayment);
+
+  const row = item => `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.75rem;background:var(--bg-subtle);border-radius:var(--radius-sm);padding:.75rem 1rem;margin-bottom:.5rem">
+      <div>
+        <div style="font-weight:700;color:var(--primary)">${item.sale.customerName}</div>
+        <div style="font-size:.8rem;color:var(--text-muted)">${item.project?.projectName || '—'} — ${item.sale.unitType === 'apartment' ? '🏠' : '🏪'} ${item.sale.unitNumber || ''}</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:.78rem;color:var(--text-muted)">المتبقي</div>
+        <div style="font-weight:700;color:var(--danger)">${formatCurrency(item.remaining)} ج.م</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:.78rem;color:var(--text-muted)">آخر دفعة</div>
+        <div style="font-weight:600">${item.lastPaymentDate ? formatDate(item.lastPaymentDate) : 'لا يوجد'}</div>
+      </div>
+      <button class="btn btn-gold btn-xs" onclick="quickAddPayment('${item.sale.id}')">➕ إضافة دفعة</button>
+    </div>`;
+
+  const section = (title, items, badgeClass, openByDefault) => `
+    <details ${openByDefault ? 'open' : ''} style="margin-bottom:1rem">
+      <summary style="cursor:pointer;font-weight:700;color:var(--primary);margin-bottom:.5rem">
+        ${title} <span class="badge badge-${badgeClass}">${items.length}</span>
+      </summary>
+      <div style="margin-top:.5rem">
+        ${items.length === 0 ? `<div class="empty" style="padding:1rem"><p>لا يوجد</p></div>` : items.map(row).join('')}
+      </div>
+    </details>`;
+
+  container.innerHTML =
+    section('🔴 عاجل — لا توجد دفعة منذ أكثر من 30 يوم', urgent, 'red', urgent.length > 0) +
+    section('🟡 تنبيه — لا توجد دفعة هذا الشهر', warning, 'gold', warning.length > 0) +
+    section('🟢 مكتمل — مسدد بالكامل', complete, 'green', false);
 }
 
 // ============================================================
@@ -873,7 +1142,7 @@ function renderSales(filteredList = null) {
 
   container.innerHTML = list.map(sale => {
     const project = projects.find(p => p.id === sale.projectId);
-    const totalPaid = getTotalPaid(sale);
+    const totalPaid = getCombinedTotalPaid(sale);
     const remaining = sale.totalPrice - totalPaid;
     const hasOverdue = (sale.payments || []).some(inst => {
       if (inst.status === 'pending' || inst.status === 'partial') {
@@ -906,6 +1175,7 @@ function renderSales(filteredList = null) {
         </div>
         <div style="display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap">
           <button class="btn btn-primary btn-sm" onclick="showSaleInstallments('${sale.id}')">📋 الأقساط (${sale.payments?.length || 0})</button>
+          <button class="btn btn-gold btn-sm" onclick="openPaymentPage('${sale.id}')">💳 صفحة الدفع</button>
           <button class="btn btn-warning btn-sm" onclick="openSaleFilesModal('${sale.id}')">📎 ملفات (${(sale.files||[]).length})</button>
           <button class="btn btn-pdf btn-sm" onclick="exportClientPDF('${sale.id}')">📄 كشف حساب</button>
           <button class="btn btn-success btn-sm" onclick="printClientPage('${sale.id}')">🖨️ طباعة بيانات</button>
@@ -933,7 +1203,7 @@ function filterSales() {
     if (projectVal && sale.projectId !== projectVal) return false;
     // فلتر الحالة
     if (statusVal) {
-      const totalPaid = getTotalPaid(sale);
+      const totalPaid = getCombinedTotalPaid(sale);
       const remaining = sale.totalPrice - totalPaid;
       const hasOverdue = (sale.payments || []).some(inst => {
         if (inst.status !== 'paid') {
@@ -989,7 +1259,7 @@ function showSaleInstallments(saleId) {
   const sale = sales.find(s => s.id === saleId);
   if (!sale) return;
   const today = new Date(); today.setHours(0,0,0,0);
-  const totalPaid = getTotalPaid(sale);
+  const totalPaid = getCombinedTotalPaid(sale);
   const remaining = sale.totalPrice - totalPaid;
 
   const modal = document.getElementById('installments-modal');
@@ -1005,7 +1275,7 @@ function showSaleInstallments(saleId) {
       <div class="summary-card ${remaining > 0 ? 'danger' : ''}" style="padding:1rem"><div class="summary-label">المتبقي</div><div class="summary-value" style="font-size:1.5rem">${formatCurrency(remaining)}</div></div>
     </div>`;
 
-  const installmentsHtml = (sale.payments || []).map((inst, idx) => {
+  const installmentEntries = (sale.payments || []).map((inst, idx) => {
     const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
     const isOverdue = (inst.status === 'pending' || inst.status === 'partial') && due < today;
     const isDueSoon = !isOverdue && (inst.status === 'pending' || inst.status === 'partial') && (due - today) <= 7 * 24 * 60 * 60 * 1000;
@@ -1028,7 +1298,7 @@ function showSaleInstallments(saleId) {
           `<button class="btn btn-danger btn-xs" onclick="removePartialPayment('${saleId}', ${idx}, '${pp.id}')">🗑️</button>` : ''}
       </div>`).join('');
 
-    return `
+    const html = `
       <div style="border:2px solid ${isOverdue ? 'var(--danger)' : isDueSoon ? 'var(--warning)' : 'var(--border)'};border-radius:12px;padding:1rem;margin-bottom:1rem;background:white">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.5rem">
           <div>
@@ -1086,7 +1356,33 @@ function showSaleInstallments(saleId) {
             </div>`).join('') : ''}
         </div>
       </div>`;
-  }).join('');
+    return { sortDate: inst.dueDate || sale.saleDate, html };
+  });
+
+  // الدفعات الحرة (من جدول payments المستقل) — تُعرض كصفوف في نفس القائمة
+  const freeEntries = getFreePaymentsForSale(saleId).map(p => ({
+    sortDate: p.date,
+    html: `
+      <div style="border:2px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem;background:#fff">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.5rem">
+          <div>
+            <div style="font-weight:700;font-size:1.1rem;color:var(--primary)">🆓 دفعة حرة</div>
+            <div style="color:var(--text-muted);font-size:0.9rem">📅 ${formatDate(p.date)}</div>
+            ${p.notes ? `<div style="color:var(--text-muted);font-size:0.85rem;margin-top:0.35rem">📝 ${p.notes}</div>` : ''}
+          </div>
+          <div style="text-align:left">
+            <div style="font-weight:700;color:var(--gold);font-size:1.1rem">${formatCurrency(p.amount)} ج.م</div>
+            <span class="badge badge-gray">—</span>
+          </div>
+        </div>
+      </div>`
+  }));
+
+  // ادمج الأقساط والدفعات الحرة في قائمة واحدة، مرتبة بالتاريخ الأحدث أولاً
+  const installmentsHtml = [...installmentEntries, ...freeEntries]
+    .sort((a, b) => (a.sortDate < b.sortDate ? 1 : a.sortDate > b.sortDate ? -1 : 0))
+    .map(e => e.html)
+    .join('');
 
   content.innerHTML = summaryHtml + installmentsHtml;
   modal.classList.add('active');
@@ -1380,6 +1676,7 @@ async function addSale(event) {
     totalPrice: parseFloat(fd.get('totalPrice')),
     paymentType,
     downPayment: parseFloat(fd.get('downPayment')) || 0,
+    paymentMode: fd.get('paymentMode') || 'free',
     notes: fd.get('notes') || '',
     installments: installmentRows.map(r => ({ label: r.label, amount: parseFloat(r.amount), dueDate: r.dueDate }))
   });
@@ -1558,7 +1855,7 @@ async function showProjectDetails(projectId) {
   const expenses = await DB.getProjectExpenses(projectId);
   const projectSales = await DB.getProjectSales(projectId);
   const totalCosts = expenses.reduce((s, e) => s + e.amount, 0);
-  const totalRevenue = projectSales.reduce((s, sale) => s + getTotalPaid(sale), 0);
+  const totalRevenue = projectSales.reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
   const expectedRevenue = projectSales.reduce((s, sale) => s + sale.totalPrice, 0);
 
   document.getElementById('project-details-title').textContent = `تفاصيل - ${project.projectName}`;
@@ -1619,7 +1916,7 @@ async function showProjectDetails(projectId) {
     </div>
     ${projectSales.length === 0 ? `<div class="empty-state"><div class="empty-state-icon">💰</div><p>لا توجد مبيعات بعد</p></div>` :
       projectSales.map(sale => {
-        const paid = getTotalPaid(sale);
+        const paid = getCombinedTotalPaid(sale);
         const remaining = sale.totalPrice - paid;
         return `
           <div style="background:var(--bg-main);border-radius:10px;padding:1rem;margin-bottom:0.75rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
@@ -1642,9 +1939,252 @@ async function showProjectDetails(projectId) {
 // ============================================================
 // REPORTS
 // ============================================================
+// ============================================================
+// التقرير الشهري (NEW) — فلتر شهر/سنة + تفصيل المصاريف + التحصيلات
+// ============================================================
+let chartExpenseBreakdown = null;
+
+function populateReportFilters() {
+  const monthSel = document.getElementById('report-month-filter');
+  const yearSel = document.getElementById('report-year-filter');
+  if (!monthSel || !yearSel) return;
+  if (monthSel.options.length > 0) return; // already populated — لا تعيد ضبط اختيار المستخدم
+
+  const months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+  monthSel.innerHTML = months.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+
+  const curYear = new Date().getFullYear();
+  let yearOptions = '';
+  for (let y = curYear - 3; y <= curYear + 1; y++) yearOptions += `<option value="${y}">${y}</option>`;
+  yearSel.innerHTML = yearOptions;
+
+  const today = new Date();
+  monthSel.value = today.getMonth() + 1;
+  yearSel.value = today.getFullYear();
+}
+
+async function getAllExpenses() {
+  const all = [];
+  for (const p of projects) {
+    const exp = await DB.getProjectExpenses(p.id);
+    exp.forEach(e => all.push({ ...e, projectName: p.projectName }));
+  }
+  return all;
+}
+
+async function renderMonthlyReport() {
+  const monthSel = document.getElementById('report-month-filter');
+  const yearSel = document.getElementById('report-year-filter');
+  if (!monthSel || !yearSel || !monthSel.value || !yearSel.value) return;
+
+  const month = parseInt(monthSel.value);
+  const year = parseInt(yearSel.value);
+  const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+
+  // إجمالي المبيعات (عقود) هذا الشهر
+  const monthSales = sales.filter(s => (s.saleDate || '').slice(0, 7) === monthKey);
+  const totalSalesMonth = monthSales.reduce((s, sale) => s + sale.totalPrice, 0);
+
+  // التحصيلات هذا الشهر — من الأقساط الثابتة (القديمة) + الدفعات الحرة (الجديدة)
+  const collections = [];
+  for (const sale of sales) {
+    const project = projects.find(p => p.id === sale.projectId);
+    (sale.payments || []).forEach(inst => (inst.partialPayments || []).forEach(pp => {
+      if ((pp.date || '').slice(0, 7) === monthKey) {
+        collections.push({ date: pp.date, customerName: sale.customerName, projectName: project?.projectName || '—', amount: parseFloat(pp.amount) || 0 });
+      }
+    }));
+  }
+  freePayments.forEach(p => {
+    if ((p.date || '').slice(0, 7) === monthKey) {
+      const sale = sales.find(s => s.id === p.saleId);
+      const project = sale ? projects.find(pr => pr.id === sale.projectId) : null;
+      collections.push({ date: p.date, customerName: sale?.customerName || '—', projectName: project?.projectName || '—', amount: p.amount });
+    }
+  });
+  collections.sort((a, b) => (a.date < b.date ? -1 : 1));
+  const totalCollected = collections.reduce((s, c) => s + c.amount, 0);
+
+  // المصاريف هذا الشهر
+  const allExpenses = await getAllExpenses();
+  const monthExpenses = allExpenses.filter(e => (e.date || '').slice(0, 7) === monthKey);
+  const totalExpensesMonth = monthExpenses.reduce((s, e) => s + e.amount, 0);
+
+  const netProfitMonth = totalCollected - totalExpensesMonth;
+
+  // ── ملخص الشهر ──
+  const statsEl = document.getElementById('monthly-summary-stats');
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <div class="stat-card info"><div class="stat-label">إجمالي المبيعات هذا الشهر</div><div class="stat-value">${formatCurrency(totalSalesMonth)}</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card gold"><div class="stat-label">إجمالي المحصّل هذا الشهر</div><div class="stat-value">${formatCurrency(totalCollected)}</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card danger"><div class="stat-label">إجمالي المصاريف هذا الشهر</div><div class="stat-value">${formatCurrency(totalExpensesMonth)}</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card gold"><div class="stat-label">صافي الربح هذا الشهر</div><div class="stat-value">${formatCurrency(netProfitMonth)}</div><div class="stat-sub">ج.م</div></div>`;
+  }
+
+  // ── توزيع المصاريف حسب الفئة ──
+  const categories = {};
+  monthExpenses.forEach(e => {
+    const key = getCategoryName(e.category, e.customCategory);
+    categories[key] = (categories[key] || 0) + e.amount;
+  });
+  const catEntries = Object.entries(categories);
+
+  const tableEl = document.getElementById('monthly-expense-table');
+  if (tableEl) {
+    tableEl.innerHTML = catEntries.length === 0
+      ? `<div class="empty" style="padding:1.5rem"><p>لا توجد مصروفات هذا الشهر</p></div>`
+      : `<table class="report-table" style="width:100%">
+          <thead><tr><th>الفئة</th><th>المبلغ</th></tr></thead>
+          <tbody>${catEntries.map(([cat, amt]) => `<tr><td>${cat}</td><td style="font-weight:700;color:var(--gold)">${formatCurrency(amt)} ج.م</td></tr>`).join('')}</tbody>
+        </table>`;
+  }
+
+  const pieCtx = document.getElementById('chart-expense-breakdown');
+  if (pieCtx) {
+    if (chartExpenseBreakdown) { chartExpenseBreakdown.destroy(); chartExpenseBreakdown = null; }
+    if (catEntries.length > 0) {
+      chartExpenseBreakdown = new Chart(pieCtx, {
+        type: 'pie',
+        data: {
+          labels: catEntries.map(([cat]) => cat),
+          datasets: [{ data: catEntries.map(([, amt]) => amt), backgroundColor: ['#c9982a', '#0f3d2e', '#2d8a60', '#e07b39', '#2471a3', '#c0392b', '#e67e22'] }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { family: 'Cairo', size: 10 }, boxWidth: 12 } } } }
+      });
+    }
+  }
+
+  // ── سجل التحصيلات ──
+  const collectionsEl = document.getElementById('monthly-collections-table');
+  if (collectionsEl) {
+    collectionsEl.innerHTML = collections.length === 0
+      ? `<div class="empty" style="padding:1.5rem"><p>لا توجد تحصيلات هذا الشهر</p></div>`
+      : `<table class="report-table" style="width:100%">
+          <thead><tr><th>التاريخ</th><th>اسم العميل</th><th>المشروع</th><th>المبلغ</th></tr></thead>
+          <tbody>${collections.map(c => `<tr><td>${formatDate(c.date)}</td><td>${c.customerName}</td><td>${c.projectName}</td><td style="font-weight:700;color:var(--gold)">${formatCurrency(c.amount)} ج.م</td></tr>`).join('')}</tbody>
+        </table>`;
+  }
+}
+
+// ============================================================
+// التقرير الشهري السريع (NEW — تبويب مستقل) — التحصيلات/المصاريف/الملخص
+// ============================================================
+function populateMqrFilters() {
+  const monthSel = document.getElementById('mqr-month');
+  const yearSel = document.getElementById('mqr-year');
+  if (!monthSel || !yearSel) return;
+  if (monthSel.options.length > 0) return; // لا تعيد ضبط اختيار المستخدم
+
+  const months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+  monthSel.innerHTML = months.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+
+  const curYear = new Date().getFullYear();
+  let yearOptions = '';
+  for (let y = curYear - 3; y <= curYear + 1; y++) yearOptions += `<option value="${y}">${y}</option>`;
+  yearSel.innerHTML = yearOptions;
+
+  const today = new Date();
+  monthSel.value = today.getMonth() + 1;
+  yearSel.value = today.getFullYear();
+}
+
+async function renderMonthlyQuickReport() {
+  populateMqrFilters();
+  const monthSel = document.getElementById('mqr-month');
+  const yearSel = document.getElementById('mqr-year');
+  if (!monthSel || !yearSel || !monthSel.value || !yearSel.value) return;
+
+  const month = parseInt(monthSel.value);
+  const year = parseInt(yearSel.value);
+  const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+
+  // ── التحصيلات: الأقساط الثابتة المدفوعة هذا الشهر + الدفعات الحرة ──
+  const collections = [];
+  for (const sale of sales) {
+    const project = projects.find(p => p.id === sale.projectId);
+    (sale.payments || []).forEach(inst => (inst.partialPayments || []).forEach(pp => {
+      if ((pp.date || '').slice(0, 7) === monthKey) {
+        const type = inst.label === 'مقدم' ? 'مقدم' : inst.label === 'كاش' ? 'كاش' : 'قسط';
+        collections.push({ date: pp.date, customerName: sale.customerName, projectName: project?.projectName || '—', type, amount: parseFloat(pp.amount) || 0 });
+      }
+    }));
+  }
+  freePayments.forEach(p => {
+    if ((p.date || '').slice(0, 7) === monthKey) {
+      const sale = sales.find(s => s.id === p.saleId);
+      const project = sale ? projects.find(pr => pr.id === sale.projectId) : null;
+      collections.push({ date: p.date, customerName: sale?.customerName || '—', projectName: project?.projectName || '—', type: 'دفعة حرة', amount: p.amount });
+    }
+  });
+  collections.sort((a, b) => (a.date < b.date ? 1 : -1));
+  const totalCollected = collections.reduce((s, c) => s + c.amount, 0);
+
+  const collTotalEl = document.getElementById('mqr-collections-total');
+  if (collTotalEl) collTotalEl.textContent = formatCurrency(totalCollected);
+
+  const collListEl = document.getElementById('mqr-collections-list');
+  if (collListEl) {
+    collListEl.innerHTML = collections.length === 0
+      ? `<div class="empty" style="padding:1.5rem"><p>لا توجد دفعات هذا الشهر</p></div>`
+      : `<table class="report-table" style="width:100%">
+          <thead><tr><th>التاريخ</th><th>اسم العميل</th><th>المشروع</th><th>النوع</th><th>المبلغ</th></tr></thead>
+          <tbody>${collections.map(c => `<tr><td>${formatDate(c.date)}</td><td>${c.customerName}</td><td>${c.projectName}</td><td>${c.type}</td><td style="font-weight:700;color:var(--gold)">${formatCurrency(c.amount)} ج.م</td></tr>`).join('')}</tbody>
+        </table>`;
+  }
+
+  // ── المصاريف هذا الشهر ──
+  const allExpenses = await getAllExpenses();
+  const monthExpenses = allExpenses.filter(e => (e.date || '').slice(0, 7) === monthKey);
+  const totalExpensesMonth = monthExpenses.reduce((s, e) => s + e.amount, 0);
+
+  const expTotalEl = document.getElementById('mqr-expenses-total');
+  if (expTotalEl) expTotalEl.textContent = formatCurrency(totalExpensesMonth);
+
+  const categories = {};
+  monthExpenses.forEach(e => {
+    const key = getCategoryName(e.category, e.customCategory);
+    categories[key] = (categories[key] || 0) + e.amount;
+  });
+  const catEntries = Object.entries(categories);
+
+  const catEl = document.getElementById('mqr-expenses-by-category');
+  if (catEl) {
+    catEl.innerHTML = catEntries.length === 0
+      ? `<div class="empty" style="padding:1rem"><p>لا توجد مصروفات</p></div>`
+      : `<table class="report-table" style="width:100%">
+          <thead><tr><th>الفئة</th><th>المبلغ</th></tr></thead>
+          <tbody>${catEntries.map(([cat, amt]) => `<tr><td>${cat}</td><td style="font-weight:700;color:var(--gold)">${formatCurrency(amt)} ج.م</td></tr>`).join('')}</tbody>
+        </table>`;
+  }
+
+  const expListEl = document.getElementById('mqr-expenses-list');
+  if (expListEl) {
+    expListEl.innerHTML = monthExpenses.length === 0
+      ? `<div class="empty" style="padding:1.5rem"><p>لا توجد مصروفات هذا الشهر</p></div>`
+      : `<table class="report-table" style="width:100%">
+          <thead><tr><th>التاريخ</th><th>الفئة</th><th>المبلغ</th><th>البيان</th></tr></thead>
+          <tbody>${monthExpenses.map(e => `<tr><td>${formatDate(e.date)}</td><td>${getCategoryName(e.category, e.customCategory)}</td><td style="font-weight:700;color:var(--gold)">${formatCurrency(e.amount)} ج.م</td><td>${e.notes || e.recipient || '—'}</td></tr>`).join('')}</tbody>
+        </table>`;
+  }
+
+  // ── الملخص ──
+  const netMonth = totalCollected - totalExpensesMonth;
+  const summaryEl = document.getElementById('mqr-summary-stats');
+  if (summaryEl) {
+    summaryEl.innerHTML = `
+      <div class="stat-card gold"><div class="stat-label">إجمالي التحصيلات</div><div class="stat-value">${formatCurrency(totalCollected)}</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card danger"><div class="stat-label">إجمالي المصاريف</div><div class="stat-value">${formatCurrency(totalExpensesMonth)}</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card ${netMonth >= 0 ? 'gold' : 'danger'}"><div class="stat-label">صافي الشهر</div><div class="stat-value">${formatCurrency(netMonth)}</div><div class="stat-sub">ج.م</div></div>`;
+  }
+}
+
 async function generateReport() {
   const container = document.getElementById('reports-content');
   if (!container) return;
+
+  populateReportFilters();
+  await renderMonthlyReport();
 
   let totalRevenue = 0, totalPaid = 0, totalCosts = 0;
   for (const p of projects) {
@@ -1656,7 +2196,7 @@ async function generateReport() {
 
   // Recalculate properly
   totalRevenue = sales.reduce((s, sale) => s + sale.totalPrice, 0);
-  totalPaid = sales.reduce((s, sale) => s + getTotalPaid(sale), 0);
+  totalPaid = sales.reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
   const totalRemaining = totalRevenue - totalPaid;
   totalCosts = 0;
   for (const p of projects) totalCosts += await calculateProjectCosts(p.id);
@@ -1758,8 +2298,34 @@ function getTotalPaid(sale) {
   return (sale.payments || []).reduce((s, inst) => s + (parseFloat(inst.paidAmount) || 0), 0);
 }
 
+// ── النظام المرن: دفعات حرة من جدول payments المستقل ───────
+function getFreePaymentsForSale(saleId) {
+  return freePayments.filter(p => p.saleId === saleId);
+}
+
+function getFreePaymentsTotal(saleId) {
+  return getFreePaymentsForSale(saleId).reduce((s, p) => s + p.amount, 0);
+}
+
+// إجمالي محصّل حقيقي لعملية بيع = الأقساط الثابتة (القديمة) + الدفعات الحرة (الجديدة)
+function getCombinedTotalPaid(sale) {
+  return getTotalPaid(sale) + getFreePaymentsTotal(sale.id);
+}
+
+function getLastPaymentDate(sale) {
+  const dates = [];
+  (sale.payments || []).forEach(inst => (inst.partialPayments || []).forEach(pp => { if (pp.date) dates.push(pp.date); }));
+  getFreePaymentsForSale(sale.id).forEach(p => { if (p.date) dates.push(p.date); });
+  if (dates.length === 0) return null;
+  return dates.sort().slice(-1)[0];
+}
+
+function paymentModeLabel(mode) {
+  return mode === 'installments' ? '📅 أقساط' : mode === 'both' ? '🔀 الاثنين' : '🆓 حرة';
+}
+
 function calculateProjectRevenue(projectId) {
-  return sales.filter(s => s.projectId === projectId).reduce((s, sale) => s + getTotalPaid(sale), 0);
+  return sales.filter(s => s.projectId === projectId).reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
 }
 
 async function calculateProjectCosts(projectId) {
@@ -1905,12 +2471,12 @@ async function exportClientPDF(saleId) {
   const sale = sales.find(s => s.id === saleId);
   if (!sale) return;
   const project = projects.find(p => p.id === sale.projectId);
-  const totalPaid = getTotalPaid(sale);
+  const totalPaid = getCombinedTotalPaid(sale);
   const remaining = sale.totalPrice - totalPaid;
   const today = new Date(); today.setHours(0,0,0,0);
   const dateStr = new Date().toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
 
-  const installmentsRows = (sale.payments || []).map((inst, i) => {
+  const installmentRowEntries = (sale.payments || []).map((inst, i) => {
     const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
     const isOverdue = inst.status !== 'paid' && due < today;
     const statusBadge =
@@ -1918,8 +2484,8 @@ async function exportClientPDF(saleId) {
       inst.status === 'partial' ? '<span class="badge badge-orange">جزئي</span>'   :
       isOverdue                 ? '<span class="badge badge-red">متأخر !</span>'   :
                                   '<span class="badge badge-blue">قادم</span>';
-    return `<tr class="${isOverdue ? 'overdue' : ''}">
-      <td>${i + 1}</td>
+    const html = `<tr class="${isOverdue ? 'overdue' : ''}">
+      <td>#</td>
       <td>${inst.label || 'قسط ' + (i+1)}</td>
       <td>${formatCurrency(inst.totalAmount)} ج.م</td>
       <td>${formatDate(inst.dueDate)}</td>
@@ -1927,7 +2493,27 @@ async function exportClientPDF(saleId) {
       <td style="color:#c0392b;font-weight:700">${formatCurrency(inst.remainingAmount || 0)} ج.م</td>
       <td>${statusBadge}</td>
     </tr>`;
-  }).join('');
+    return { sortDate: inst.dueDate || sale.saleDate, html };
+  });
+
+  // الدفعات الحرة (من جدول payments المستقل) — تُدمج في نفس الجدول
+  const freeRowEntries = getFreePaymentsForSale(saleId).map(p => ({
+    sortDate: p.date,
+    html: `<tr>
+      <td>#</td>
+      <td>🆓 دفعة حرة</td>
+      <td>${formatCurrency(p.amount)} ج.م</td>
+      <td>${formatDate(p.date)}</td>
+      <td style="color:#1e7e4a;font-weight:700">${formatCurrency(p.amount)} ج.م</td>
+      <td style="color:#1e7e4a;font-weight:700">0.00 ج.م</td>
+      <td>${p.notes || '—'}</td>
+    </tr>`
+  }));
+
+  const installmentsRows = [...installmentRowEntries, ...freeRowEntries]
+    .sort((a, b) => (a.sortDate < b.sortDate ? 1 : a.sortDate > b.sortDate ? -1 : 0))
+    .map((e, i) => e.html.replace('<td>#</td>', `<td>${i + 1}</td>`))
+    .join('');
 
   const html = `
     <div class="pdf-header">
@@ -1952,7 +2538,7 @@ async function exportClientPDF(saleId) {
       <div class="summary-box ${remaining > 0 ? 'red' : 'green'}"><div class="lbl">المتبقي</div><div class="val">${formatCurrency(remaining)}</div><div class="lbl">ج.م</div></div>
     </div>
 
-    <div class="section-title">جدول الأقساط (${(sale.payments || []).length} قسط)</div>
+    <div class="section-title">جدول الأقساط والدفعات (${installmentRowEntries.length + freeRowEntries.length} بند)</div>
     <table>
       <thead><tr><th>#</th><th>البند</th><th>المبلغ</th><th>تاريخ الاستحقاق</th><th>المدفوع</th><th>المتبقي</th><th>الحالة</th></tr></thead>
       <tbody>${installmentsRows}</tbody>
@@ -1974,7 +2560,7 @@ async function exportProjectPDF(projectId) {
   const expenses = await DB.getProjectExpenses(projectId);
   const projectSales = sales.filter(s => s.projectId === projectId);
   const totalCosts = expenses.reduce((s, e) => s + e.amount, 0);
-  const totalPaid = projectSales.reduce((s, sale) => s + getTotalPaid(sale), 0);
+  const totalPaid = projectSales.reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
   const totalExpected = projectSales.reduce((s, sale) => s + sale.totalPrice, 0);
   const dateStr = new Date().toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
 
@@ -1989,7 +2575,7 @@ async function exportProjectPDF(projectId) {
     </tr>`).join('');
 
   const saleRows = projectSales.map((sale, i) => {
-    const paid = getTotalPaid(sale);
+    const paid = getCombinedTotalPaid(sale);
     const rem = sale.totalPrice - paid;
     return `<tr>
       <td>${i+1}</td>
@@ -2043,7 +2629,7 @@ async function exportMonthlyPDF() {
 
   let totalCosts = 0;
   for (const p of projects) totalCosts += await calculateProjectCosts(p.id);
-  const totalPaid = sales.reduce((s, sale) => s + getTotalPaid(sale), 0);
+  const totalPaid = sales.reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
   const totalExpected = sales.reduce((s, sale) => s + sale.totalPrice, 0);
 
   // الأقساط المتأخرة
@@ -2132,458 +2718,13 @@ async function exportMonthlyPDF() {
 }
 
 // ============================================================
-// UNITS MODULE
+// صفحة العميل للطباعة — A4 بضغطة واحدة
 // ============================================================
-let units = [];
-let unitView = 'grid';
-let selectedUnitStatus = '';
-
-const UNIT_TYPE_LABEL = { apartment:'🏠 شقة', shop:'🏪 محل', duplex:'🏰 دوبلكس', other:'📦 أخرى' };
-const UNIT_DIR_LABEL  = { north:'شمال', south:'جنوب', east:'شرق', west:'غرب', 'north-east':'ش.شرق', 'north-west':'ش.غرب', 'south-east':'ج.شرق', 'south-west':'ج.غرب', street:'شارع' };
-const UNIT_STATUS_LABEL = { available:'✅ متاح', reserved:'🟡 محجوز', sold:'🔴 مباع' };
-
-// ── تحميل الوحدات ─────────────────────────────────────────
-async function loadUnits() {
-  const { data, error } = await DB.supabase.from('units').select('*').order('unit_number');
-  if (error) { console.error(error); return; }
-  units = data || [];
-}
-
-// ── عند فتح تبويب الوحدات ─────────────────────────────────
-async function initUnitsView() {
-  if (units.length === 0) {
-    showLoading();
-    await loadUnits();
-    hideLoading();
-  }
-  populateUnitProjectSelects();
-  applyUnitFilters();
-}
-
-// ── إحصائيات ──────────────────────────────────────────────
-function updateUnitStats(list) {
-  const avail = list.filter(u => u.status === 'available');
-  const res   = list.filter(u => u.status === 'reserved');
-  const sold  = list.filter(u => u.status === 'sold');
-  const val   = avail.reduce((s, u) => s + (parseFloat(u.price) || 0), 0);
-  document.getElementById('u-stat-total').textContent     = list.length;
-  document.getElementById('u-stat-available').textContent = avail.length;
-  document.getElementById('u-stat-reserved').textContent  = res.length;
-  document.getElementById('u-stat-sold').textContent      = sold.length;
-  document.getElementById('u-stat-value').textContent     = formatCurrency(val);
-}
-
-// ── فلترة ─────────────────────────────────────────────────
-function applyUnitFilters() {
-  const search  = document.getElementById('u-search')?.value?.toLowerCase().trim() || '';
-  const project = document.getElementById('u-filter-project')?.value || '';
-  const type    = document.getElementById('u-filter-type')?.value || '';
-  const status  = document.getElementById('u-filter-status')?.value || '';
-
-  const filtered = units.filter(u => {
-    if (search  && !`${u.unit_number} ${u.reserved_by||''} ${u.notes||''}`.toLowerCase().includes(search)) return false;
-    if (project && u.project_id !== project) return false;
-    if (type    && u.unit_type  !== type)    return false;
-    if (status  && u.status     !== status)  return false;
-    return true;
-  });
-
-  const hasFilter = search || project || type || status;
-  const countEl = document.getElementById('u-filter-count');
-  if (countEl) countEl.textContent = hasFilter ? `${filtered.length} من ${units.length}` : '';
-
-  updateUnitStats(filtered);
-  renderUnits(filtered);
-}
-
-function clearUnitFilters() {
-  ['u-search','u-filter-project','u-filter-type','u-filter-status'].forEach(id => {
-    const el = document.getElementById(id); if (el) el.value = '';
-  });
-  document.getElementById('u-filter-count').textContent = '';
-  updateUnitStats(units);
-  renderUnits(units);
-}
-
-function setUnitView(v) {
-  unitView = v;
-  document.getElementById('u-btn-grid').classList.toggle('active', v === 'grid');
-  document.getElementById('u-btn-table').classList.toggle('active', v === 'table');
-  applyUnitFilters();
-}
-
-// ── Render بطاقات ─────────────────────────────────────────
-function renderUnits(list) {
-  const container = document.getElementById('units-container');
-  if (!container) return;
-
-  if (list.length === 0) {
-    container.innerHTML = `<div class="empty"><div class="empty-icon">🏠</div><p>${units.length === 0 ? 'لا توجد وحدات بعد — اضغط ➕ لإضافة وحدات' : 'لا توجد نتائج'}</p></div>`;
-    return;
-  }
-
-  if (unitView === 'grid') renderUnitsGrid(list);
-  else renderUnitsTable(list);
-}
-
-function renderUnitsGrid(list) {
-  const filterProject = document.getElementById('u-filter-project')?.value;
-  const byProject = {};
-  list.forEach(u => {
-    const proj = projects.find(p => p.id === u.project_id);
-    if (!byProject[u.project_id]) byProject[u.project_id] = { proj, units: [] };
-    byProject[u.project_id].units.push(u);
-  });
-
-  const showHeaders = !filterProject || Object.keys(byProject).length > 1;
-
-  document.getElementById('units-container').innerHTML = Object.values(byProject).map(({ proj, units: pUnits }) => {
-    const avail = pUnits.filter(u => u.status === 'available').length;
-    const res   = pUnits.filter(u => u.status === 'reserved').length;
-    const sold  = pUnits.filter(u => u.status === 'sold').length;
-    return `
-      <div style="margin-bottom:1.75rem">
-        ${showHeaders ? `
-        <div style="background:var(--primary);color:#fff;border-radius:var(--radius-md);padding:.85rem 1.25rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
-          <div style="font-family:'Tajawal',sans-serif;font-size:1.1rem;font-weight:900">🏗️ ${proj?.projectName || proj?.project_name || 'غير محدد'}</div>
-          <div style="display:flex;gap:.5rem;font-size:.82rem;flex-wrap:wrap">
-            <span style="background:rgba(30,126,74,.35);border-radius:20px;padding:.2rem .75rem;font-weight:700">✅ ${avail}</span>
-            <span style="background:rgba(230,126,34,.35);border-radius:20px;padding:.2rem .75rem;font-weight:700">🟡 ${res}</span>
-            <span style="background:rgba(192,57,43,.35);border-radius:20px;padding:.2rem .75rem;font-weight:700">🔴 ${sold}</span>
-          </div>
-        </div>` : ''}
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:1rem">
-          ${pUnits.map(u => renderUnitCard(u)).join('')}
-        </div>
-      </div>`;
-  }).join('');
-}
-
-function renderUnitCard(u) {
-  const typeBadgeColor = { apartment:'#e8f1fb;color:#1a5276', shop:'#fdf3dc;color:#9a6f10', duplex:'#f0e8fb;color:#6c3483', other:'#f0ede6;color:#5a5850' };
-  const statusClass    = { available:'#b8e0c8', reserved:'#f5c98a', sold:'#f0a8a0' };
-  const statusPillBg   = { available:'#e8f5ee;color:#1e7e4a', reserved:'#fef0e7;color:#e67e22', sold:'#fce8e6;color:#c0392b' };
-  const barColor       = { available:'var(--success)', reserved:'var(--warning)', sold:'var(--danger)' };
-
-  return `
-    <div style="background:var(--bg-card);border-radius:var(--radius-md);border:2px solid ${statusClass[u.status]||'var(--border)'};overflow:hidden;transition:all .25s" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''">
-      <div style="height:5px;background:${barColor[u.status]}"></div>
-      <div style="padding:1rem">
-        <div style="font-family:'Tajawal',sans-serif;font-size:1.25rem;font-weight:900;color:var(--primary);margin-bottom:.25rem">${u.unit_number}</div>
-        <span style="font-size:.75rem;font-weight:700;padding:.2rem .6rem;border-radius:10px;display:inline-block;margin-bottom:.6rem;background:${typeBadgeColor[u.unit_type]||typeBadgeColor.other}">${UNIT_TYPE_LABEL[u.unit_type]||u.unit_type}</span>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.3rem;margin-bottom:.6rem;font-size:.82rem">
-          ${u.floor  > 0 ? `<div><div style="color:var(--text-muted);font-size:.7rem;font-weight:600">الدور</div><div style="font-weight:700">${u.floor}</div></div>` : ''}
-          ${u.area   > 0 ? `<div><div style="color:var(--text-muted);font-size:.7rem;font-weight:600">المساحة</div><div style="font-weight:700">${u.area} م²</div></div>` : ''}
-          ${u.direction ? `<div><div style="color:var(--text-muted);font-size:.7rem;font-weight:600">الاتجاه</div><div style="font-weight:700">${UNIT_DIR_LABEL[u.direction]||u.direction}</div></div>` : ''}
-        </div>
-        ${u.price > 0 ? `<div style="font-family:'Tajawal',sans-serif;font-size:1.15rem;font-weight:900;color:var(--gold);margin-bottom:.5rem">${formatCurrency(u.price)} ج.م</div>` : ''}
-        <div style="display:inline-flex;align-items:center;gap:.35rem;padding:.3rem .85rem;border-radius:20px;font-size:.8rem;font-weight:700;margin-bottom:.6rem;background:${statusPillBg[u.status]}">${UNIT_STATUS_LABEL[u.status]}</div>
-        ${u.reserved_by ? `<div style="font-size:.78rem;color:var(--warning);font-weight:600;margin-bottom:.4rem">👤 ${u.reserved_by}</div>` : ''}
-        ${u.notes ? `<div style="font-size:.76rem;color:var(--text-muted);margin-bottom:.4rem">📝 ${u.notes}</div>` : ''}
-        <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem">
-          <button class="btn btn-sm ${u.status==='available'?'btn-warning':u.status==='reserved'?'btn-danger':'btn-ghost'}" onclick="openUnitStatusModal('${u.id}')">
-            ${u.status==='available'?'🟡 حجز':u.status==='reserved'?'🔴 بيع':'🔄 تغيير'}
-          </button>
-          <button class="btn btn-ghost btn-sm" onclick="openEditUnitModal('${u.id}')">✏️</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteUnit('${u.id}')">🗑️</button>
-        </div>
-      </div>
-    </div>`;
-}
-
-function renderUnitsTable(list) {
-  document.getElementById('units-container').innerHTML = `
-    <div style="background:var(--bg-card);border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--border)">
-      <table style="width:100%;border-collapse:collapse;font-size:.87rem">
-        <thead><tr style="background:var(--primary);color:#fff">
-          <th style="padding:.7rem 1rem;text-align:right">رقم الوحدة</th>
-          <th style="padding:.7rem 1rem;text-align:right">المشروع</th>
-          <th style="padding:.7rem 1rem;text-align:right">النوع</th>
-          <th style="padding:.7rem 1rem;text-align:right">الدور</th>
-          <th style="padding:.7rem 1rem;text-align:right">المساحة</th>
-          <th style="padding:.7rem 1rem;text-align:right">الاتجاه</th>
-          <th style="padding:.7rem 1rem;text-align:right">السعر</th>
-          <th style="padding:.7rem 1rem;text-align:right">الحالة</th>
-          <th style="padding:.7rem 1rem;text-align:right">لـ</th>
-          <th style="padding:.7rem 1rem;text-align:right">إجراء</th>
-        </tr></thead>
-        <tbody>
-          ${list.map((u, i) => {
-            const proj = projects.find(p => p.id === u.project_id);
-            const bgColor = u.status==='available' ? '' : u.status==='reserved' ? '#fef9f0' : '#fdf5f5';
-            const borderColor = u.status==='available' ? 'var(--success)' : u.status==='reserved' ? 'var(--warning)' : 'var(--danger)';
-            return `<tr style="background:${bgColor||( i%2===0?'#fff':'var(--bg-subtle)')};border-bottom:1px solid var(--border)">
-              <td style="padding:.65rem 1rem;font-weight:700;border-right:3px solid ${borderColor}">${u.unit_number}</td>
-              <td style="padding:.65rem 1rem;color:var(--text-muted)">${proj?.projectName||proj?.project_name||'—'}</td>
-              <td style="padding:.65rem 1rem">${UNIT_TYPE_LABEL[u.unit_type]||u.unit_type}</td>
-              <td style="padding:.65rem 1rem">${u.floor||'—'}</td>
-              <td style="padding:.65rem 1rem">${u.area>0?u.area+' م²':'—'}</td>
-              <td style="padding:.65rem 1rem">${UNIT_DIR_LABEL[u.direction]||'—'}</td>
-              <td style="padding:.65rem 1rem;font-weight:700;color:var(--gold)">${u.price>0?formatCurrency(u.price)+' ج.م':'—'}</td>
-              <td style="padding:.65rem 1rem;font-weight:700">${UNIT_STATUS_LABEL[u.status]}</td>
-              <td style="padding:.65rem 1rem;font-size:.82rem">${u.reserved_by||'—'}</td>
-              <td style="padding:.65rem 1rem">
-                <div style="display:flex;gap:.3rem">
-                  <button class="btn btn-xs btn-warning" onclick="openUnitStatusModal('${u.id}')">🔄</button>
-                  <button class="btn btn-xs btn-ghost" onclick="openEditUnitModal('${u.id}')">✏️</button>
-                  <button class="btn btn-xs btn-danger" onclick="deleteUnit('${u.id}')">🗑️</button>
-                </div>
-              </td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>`;
-}
-
-// ── Add / Edit ─────────────────────────────────────────────
-function openAddUnitModal() {
-  document.getElementById('unit-modal-title').textContent = '➕ إضافة وحدة جديدة';
-  document.getElementById('unit-id').value = '';
-  document.getElementById('unit-form').reset();
-  document.getElementById('unit-reserved-by-group').style.display = 'none';
-  document.getElementById('unit-modal').classList.add('active');
-}
-
-function openEditUnitModal(unitId) {
-  const u = units.find(x => x.id === unitId);
-  if (!u) return;
-  document.getElementById('unit-modal-title').textContent = '✏️ تعديل الوحدة';
-  document.getElementById('unit-id').value           = u.id;
-  document.getElementById('unit-project').value      = u.project_id;
-  document.getElementById('unit-type').value         = u.unit_type;
-  document.getElementById('unit-number').value       = u.unit_number;
-  document.getElementById('unit-floor').value        = u.floor || 0;
-  document.getElementById('unit-area').value         = u.area || 0;
-  document.getElementById('unit-direction').value    = u.direction || '';
-  document.getElementById('unit-price').value        = u.price || 0;
-  document.getElementById('unit-status').value       = u.status;
-  document.getElementById('unit-reserved-by').value  = u.reserved_by || '';
-  document.getElementById('unit-notes').value        = u.notes || '';
-  toggleUnitReservedBy();
-  document.getElementById('unit-modal').classList.add('active');
-}
-
-async function saveUnit(event) {
-  event.preventDefault();
-  showLoading();
-  const id = document.getElementById('unit-id').value;
-  const row = {
-    project_id:  document.getElementById('unit-project').value,
-    unit_type:   document.getElementById('unit-type').value,
-    unit_number: document.getElementById('unit-number').value.trim(),
-    floor:       parseInt(document.getElementById('unit-floor').value) || 0,
-    area:        parseFloat(document.getElementById('unit-area').value) || 0,
-    direction:   document.getElementById('unit-direction').value,
-    price:       parseFloat(document.getElementById('unit-price').value) || 0,
-    status:      document.getElementById('unit-status').value,
-    reserved_by: document.getElementById('unit-reserved-by').value.trim(),
-    notes:       document.getElementById('unit-notes').value.trim(),
-    updated_at:  new Date().toISOString()
-  };
-
-  let error;
-  if (id) {
-    ({ error } = await DB.supabase.from('units').update(row).eq('id', id));
-  } else {
-    ({ error } = await DB.supabase.from('units').insert([{ ...row, id: crypto.randomUUID() }]));
-  }
-
-  if (error) { hideLoading(); showToast('خطأ: ' + error.message, 'error'); return; }
-
-  await loadUnits();
-  hideLoading();
-  closeModal('unit-modal');
-  applyUnitFilters();
-  showToast(id ? 'تم تحديث الوحدة' : 'تمت إضافة الوحدة');
-}
-
-async function deleteUnit(unitId) {
-  const u = units.find(x => x.id === unitId);
-  if (!confirm(`حذف الوحدة "${u?.unit_number}"؟`)) return;
-  showLoading();
-  const { error } = await DB.supabase.from('units').delete().eq('id', unitId);
-  if (error) { hideLoading(); showToast('خطأ في الحذف', 'error'); return; }
-  await loadUnits();
-  hideLoading();
-  applyUnitFilters();
-  showToast('تم حذف الوحدة');
-}
-
-function toggleUnitReservedBy() {
-  const s = document.getElementById('unit-status').value;
-  document.getElementById('unit-reserved-by-group').style.display = (s==='reserved'||s==='sold') ? 'block' : 'none';
-}
-
-// ── Status Modal ───────────────────────────────────────────
-function openUnitStatusModal(unitId) {
-  const u = units.find(x => x.id === unitId);
-  if (!u) return;
-  selectedUnitStatus = u.status;
-  document.getElementById('unit-status-id').value = unitId;
-  document.getElementById('unit-status-modal-title').textContent = `تغيير حالة — ${u.unit_number}`;
-  document.getElementById('unit-status-reserved-by').value = u.reserved_by || '';
-  ['available','reserved','sold'].forEach(s => {
-    const el = document.getElementById(`ustatus-${s}`);
-    if (el) el.style.background = s === u.status ? (s==='available'?'#e8f5ee':s==='reserved'?'#fef0e7':'#fce8e6') : '';
-  });
-  toggleUnitStatusNameGroup();
-  document.getElementById('unit-status-modal').classList.add('active');
-}
-
-function selectUnitStatus(status) {
-  selectedUnitStatus = status;
-  ['available','reserved','sold'].forEach(s => {
-    const el = document.getElementById(`ustatus-${s}`);
-    if (el) el.style.background = s===status ? (s==='available'?'#e8f5ee':s==='reserved'?'#fef0e7':'#fce8e6') : '';
-  });
-  toggleUnitStatusNameGroup();
-}
-
-function toggleUnitStatusNameGroup() {
-  const show = selectedUnitStatus==='reserved' || selectedUnitStatus==='sold';
-  document.getElementById('unit-status-name-group').style.display = show ? 'block' : 'none';
-  document.getElementById('unit-status-name-label').textContent =
-    selectedUnitStatus==='reserved' ? 'محجوز لـ (اسم العميل/السمسار)' : 'مباع لـ';
-}
-
-async function confirmUnitStatus() {
-  if (!selectedUnitStatus) { showToast('اختر الحالة', 'warning'); return; }
-  const unitId = document.getElementById('unit-status-id').value;
-  const reservedBy = document.getElementById('unit-status-reserved-by').value.trim();
-  showLoading();
-  const { error } = await DB.supabase.from('units').update({
-    status: selectedUnitStatus, reserved_by: reservedBy, updated_at: new Date().toISOString()
-  }).eq('id', unitId);
-  if (error) { hideLoading(); showToast('خطأ', 'error'); return; }
-  await loadUnits();
-  hideLoading();
-  closeModal('unit-status-modal');
-  applyUnitFilters();
-  showToast(`تم التغيير إلى ${UNIT_STATUS_LABEL[selectedUnitStatus]}`);
-}
-
-// ── PDF السماسرة ───────────────────────────────────────────
-function exportBrokerPDF() {
-  const filterProject = document.getElementById('u-filter-project')?.value || '';
-  const filterStatus  = document.getElementById('u-filter-status')?.value  || 'available';
-  const filterType    = document.getElementById('u-filter-type')?.value    || '';
-
-  const list = units.filter(u => {
-    if (filterProject && u.project_id !== filterProject) return false;
-    if (filterStatus  && u.status     !== filterStatus)  return false;
-    if (filterType    && u.unit_type  !== filterType)    return false;
-    return true;
-  });
-
-  if (list.length === 0) { showToast('لا توجد وحدات للتصدير', 'warning'); return; }
-
-  const dateStr = new Date().toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
-  const byProject = {};
-  list.forEach(u => {
-    const proj = projects.find(p => p.id === u.project_id);
-    if (!byProject[u.project_id]) byProject[u.project_id] = { proj, units: [] };
-    byProject[u.project_id].units.push(u);
-  });
-
-  const sections = Object.values(byProject).map(({ proj, units: pUnits }) => `
-    <div style="margin-bottom:20px;break-inside:avoid">
-      <div style="background:#1a5c42;color:#fff;border-radius:6px;padding:8px 12px;font-family:'Tajawal',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">
-        🏗️ ${proj?.projectName||proj?.project_name||'غير محدد'} — ${pUnits.length} وحدة
-      </div>
-      <table style="width:100%;border-collapse:collapse;font-size:11px">
-        <thead><tr style="background:#0f3d2e;color:#fff">
-          <th style="padding:6px 8px;text-align:right">#</th>
-          <th style="padding:6px 8px;text-align:right">رقم الوحدة</th>
-          <th style="padding:6px 8px;text-align:right">النوع</th>
-          <th style="padding:6px 8px;text-align:right">الدور</th>
-          <th style="padding:6px 8px;text-align:right">المساحة</th>
-          <th style="padding:6px 8px;text-align:right">الاتجاه</th>
-          <th style="padding:6px 8px;text-align:right">السعر</th>
-          <th style="padding:6px 8px;text-align:right">الحالة</th>
-        </tr></thead>
-        <tbody>
-          ${pUnits.map((u, i) => `<tr style="background:${i%2===0?'#fff':'#f7f5f0'};border-bottom:1px solid #e0ddd6">
-            <td style="padding:6px 8px">${i+1}</td>
-            <td style="padding:6px 8px;font-weight:700">${u.unit_number}</td>
-            <td style="padding:6px 8px">${UNIT_TYPE_LABEL[u.unit_type]||u.unit_type}</td>
-            <td style="padding:6px 8px">${u.floor||'—'}</td>
-            <td style="padding:6px 8px">${u.area>0?u.area+' م²':'—'}</td>
-            <td style="padding:6px 8px">${UNIT_DIR_LABEL[u.direction]||'—'}</td>
-            <td style="padding:6px 8px;font-weight:700;color:#c9982a">${u.price>0?formatCurrency(u.price)+' ج.م':'—'}</td>
-            <td style="padding:6px 8px;font-weight:700;color:${u.status==='available'?'#1e7e4a':u.status==='reserved'?'#e67e22':'#c0392b'}">
-              ${UNIT_STATUS_LABEL[u.status]}
-            </td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`).join('');
-
-  const totalAvail = list.filter(u=>u.status==='available');
-  const totalVal   = totalAvail.reduce((s,u)=>s+(parseFloat(u.price)||0),0);
-
-  const html = `
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&family=Tajawal:wght@700;900&display=swap');
-      *{margin:0;padding:0;box-sizing:border-box}
-      body{font-family:'Cairo',sans-serif;direction:rtl;color:#1c1c1a;padding:20px;background:#fff;font-size:12px}
-      @media print{body{padding:8px} @page{margin:12mm;size:A4}}
-    </style>
-    <div style="background:#0f3d2e;color:#fff;border-radius:10px;padding:16px 20px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
-      <div>
-        <h1 style="font-family:'Tajawal',sans-serif;font-size:20px;font-weight:900">قائمة الوحدات المتاحة</h1>
-        <div style="font-size:11px;opacity:.8;margin-top:3px">تاريخ الإصدار: ${dateStr}</div>
-      </div>
-      <div style="text-align:center;background:rgba(255,255,255,.15);border-radius:8px;padding:8px 14px">
-        <div style="font-size:11px;opacity:.8">إجمالي الوحدات</div>
-        <div style="font-family:'Tajawal',sans-serif;font-size:22px;font-weight:900">${list.length}</div>
-      </div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
-      <div style="background:#e8f5ee;border-radius:8px;padding:10px;text-align:center">
-        <div style="font-size:10px;color:#6b6860;font-weight:600;margin-bottom:3px">متاح</div>
-        <div style="font-family:'Tajawal',sans-serif;font-size:18px;font-weight:900;color:#1e7e4a">${totalAvail.length}</div>
-      </div>
-      <div style="background:#fdf3dc;border-radius:8px;padding:10px;text-align:center">
-        <div style="font-size:10px;color:#6b6860;font-weight:600;margin-bottom:3px">إجمالي قيمة المتاح</div>
-        <div style="font-family:'Tajawal',sans-serif;font-size:14px;font-weight:900;color:#9a6f10">${formatCurrency(totalVal)} ج.م</div>
-      </div>
-      <div style="background:#e8f1fb;border-radius:8px;padding:10px;text-align:center">
-        <div style="font-size:10px;color:#6b6860;font-weight:600;margin-bottom:3px">عدد المشاريع</div>
-        <div style="font-family:'Tajawal',sans-serif;font-size:18px;font-weight:900;color:#1a5276">${Object.keys(byProject).length}</div>
-      </div>
-    </div>
-    ${sections}
-    <div style="margin-top:16px;text-align:center;font-size:10px;color:#aaa;border-top:1px solid #e0ddd6;padding-top:8px">
-      نظام إدارة المشاريع العقارية — ${dateStr}
-    </div>`;
-
-  openPrintWindow(html, 'قائمة-الوحدات');
-  showToast('جاري فتح ملف السماسرة...', 'info');
-}
-
-// ── populate project select in unit modal ──────────────────
-function populateUnitProjectSelects() {
-  ['unit-project','u-filter-project'].forEach(id => {
-    const sel = document.getElementById(id);
-    if (!sel) return;
-    const cur = sel.value;
-    const isFilter = id === 'u-filter-project';
-    sel.innerHTML = isFilter ? '<option value="">كل المشاريع</option>' : '<option value="">اختر المشروع</option>';
-    projects.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = p.projectName || p.project_name;
-      sel.appendChild(opt);
-    });
-    if (cur) sel.value = cur;
-  });
-}
 function printClientPage(saleId) {
   const sale = sales.find(s => s.id === saleId);
   if (!sale) return;
   const project = projects.find(p => p.id === sale.projectId);
-  const totalPaid = getTotalPaid(sale);
+  const totalPaid = getCombinedTotalPaid(sale);
   const remaining = sale.totalPrice - totalPaid;
   const today = new Date(); today.setHours(0,0,0,0);
   const dateStr = new Date().toLocaleDateString('ar-EG', { year:'numeric', month:'long', day:'numeric' });
@@ -2593,7 +2734,7 @@ function printClientPage(saleId) {
     .filter(i => i.status !== 'paid')
     .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))[0];
 
-  const instRows = (sale.payments || []).map((inst, i) => {
+  const instRowEntries = (sale.payments || []).map((inst, i) => {
     const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
     const isOverdue = inst.status !== 'paid' && due < today;
     const statusAr = inst.status === 'paid' ? '✓ مدفوع'
@@ -2601,15 +2742,34 @@ function printClientPage(saleId) {
       : isOverdue ? '! متأخر' : '◷ قادم';
     const color = inst.status === 'paid' ? '#1e7e4a'
       : isOverdue ? '#c0392b' : inst.status === 'partial' ? '#e67e22' : '#2471a3';
-    return `<tr>
-      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;text-align:center">${i+1}</td>
+    const html = `<tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;text-align:center">#</td>
       <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6">${inst.label || `القسط ${i+1}`}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700">${formatCurrency(inst.totalAmount)} ج.م</td>
       <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6">${formatDate(inst.dueDate)}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700;color:#1e7e4a">${formatCurrency(inst.paidAmount || 0)} ج.م</td>
       <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700;color:${color}">${statusAr}</td>
     </tr>`;
-  }).join('');
+    return { sortDate: inst.dueDate || sale.saleDate, html };
+  });
+
+  // الدفعات الحرة (من جدول payments المستقل) — تُدمج في نفس الجدول
+  const freeRowEntries = getFreePaymentsForSale(saleId).map(p => ({
+    sortDate: p.date,
+    html: `<tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;text-align:center">#</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6">🆓 دفعة حرة</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700">${formatCurrency(p.amount)} ج.م</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6">${formatDate(p.date)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700;color:#1e7e4a">${formatCurrency(p.amount)} ج.م</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;color:#6b6860">${p.notes || '—'}</td>
+    </tr>`
+  }));
+
+  const instRows = [...instRowEntries, ...freeRowEntries]
+    .sort((a, b) => (a.sortDate < b.sortDate ? 1 : a.sortDate > b.sortDate ? -1 : 0))
+    .map((e, i) => e.html.replace('>#<', `>${i + 1}<`))
+    .join('');
 
   const html = `
     <style>
@@ -2716,6 +2876,160 @@ function printClientPage(saleId) {
 // ============================================================
 function closeModal(id) {
   document.getElementById(id)?.classList.remove('active');
+}
+
+// ============================================================
+// FLEXIBLE PAYMENT PAGE (NEW) — جدول payments المستقل
+// ============================================================
+let showAddPaymentForm = false;
+
+function openPaymentPage(saleId) {
+  showAddPaymentForm = false;
+  renderPaymentPage(saleId);
+  document.getElementById('payment-page-modal').classList.add('active');
+}
+
+function renderPaymentPage(saleId) {
+  const sale = sales.find(s => s.id === saleId);
+  if (!sale) return;
+  const project = projects.find(p => p.id === sale.projectId);
+  const title = document.getElementById('payment-page-title');
+  const content = document.getElementById('payment-page-content');
+
+  const totalPaid = getCombinedTotalPaid(sale);
+  const remaining = sale.totalPrice - totalPaid;
+  const totalPayments = totalPaid - sale.downPayment;
+  const history = getFreePaymentsForSale(saleId).slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+
+  title.textContent = `💳 صفحة الدفع — ${sale.customerName}`;
+
+  content.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.75rem;margin-bottom:1.25rem">
+      <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+        <span class="badge badge-blue">${project?.projectName || '—'}</span>
+        <span class="badge badge-green">${sale.unitType === 'apartment' ? '🏠 شقة' : '🏪 محل'} ${sale.unitNumber || ''}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <span class="badge badge-gold">${paymentModeLabel(sale.paymentMode)}</span>
+        <select id="payment-mode-select" class="form-control" style="padding:.3rem .6rem;font-size:.8rem;width:auto">
+          <option value="free" ${sale.paymentMode === 'free' ? 'selected' : ''}>🆓 حرة</option>
+          <option value="installments" ${sale.paymentMode === 'installments' ? 'selected' : ''}>📅 أقساط</option>
+          <option value="both" ${sale.paymentMode === 'both' ? 'selected' : ''}>🔀 الاثنين</option>
+        </select>
+        <button class="btn btn-ghost btn-xs" onclick="savePaymentMode('${saleId}')">💾</button>
+      </div>
+    </div>
+
+    <div class="stats-row" style="margin-bottom:1.25rem">
+      <div class="stat-card"><div class="stat-label">إجمالي ثمن الوحدة</div><div class="stat-value">${formatCurrency(sale.totalPrice)}</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card gold"><div class="stat-label">المقدم المدفوع</div><div class="stat-value">${formatCurrency(sale.downPayment)}</div><div class="stat-sub">ج.م</div></div>
+      <div class="stat-card info"><div class="stat-label">إجمالي الدفعات</div><div class="stat-value">${formatCurrency(totalPayments)}</div><div class="stat-sub">يشمل الأقساط + الدفعات الحرة</div></div>
+      <div class="stat-card ${remaining > 0 ? 'danger' : ''}"><div class="stat-label">المتبقي</div><div class="stat-value">${formatCurrency(remaining)}</div><div class="stat-sub">ج.م</div></div>
+    </div>
+
+    ${sale.paymentMode !== 'free' ? `<div class="info-box">💡 لمتابعة جدول الأقساط الثابتة استخدم زر "📋 الأقساط" من قائمة المبيعات</div>` : ''}
+
+    <div class="card-hd" style="margin-top:1rem;border-bottom:none;padding-bottom:0">
+      <div class="card-title">📜 سجل الدفعات الحرة (${history.length})</div>
+      <button class="btn btn-gold btn-sm" onclick="toggleAddPaymentForm('${saleId}')">➕ إضافة دفعة</button>
+    </div>
+
+    <div id="add-payment-form-wrap"></div>
+
+    ${history.length === 0
+      ? `<div class="empty"><div class="empty-icon">💳</div><p>لا توجد دفعات حرة مسجلة بعد</p></div>`
+      : `<table class="report-table" style="width:100%">
+          <thead><tr><th>التاريخ</th><th>المبلغ</th><th>تاريخ الاستحقاق</th><th>الملاحظة</th><th></th></tr></thead>
+          <tbody>
+            ${history.map(p => `
+              <tr>
+                <td>${formatDate(p.date)}</td>
+                <td style="font-weight:700;color:var(--gold)">${formatCurrency(p.amount)} ج.م</td>
+                <td>${p.dueDate ? formatDate(p.dueDate) : '—'}</td>
+                <td>${p.notes || '—'}</td>
+                <td><button class="btn btn-danger btn-xs" onclick="deleteFreePayment('${p.id}','${saleId}')">🗑️</button></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`}
+  `;
+
+  if (showAddPaymentForm) renderAddPaymentForm(saleId);
+}
+
+function toggleAddPaymentForm(saleId) {
+  showAddPaymentForm = !showAddPaymentForm;
+  if (showAddPaymentForm) renderAddPaymentForm(saleId);
+  else { const wrap = document.getElementById('add-payment-form-wrap'); if (wrap) wrap.innerHTML = ''; }
+}
+
+function renderAddPaymentForm(saleId) {
+  const sale = sales.find(s => s.id === saleId);
+  const wrap = document.getElementById('add-payment-form-wrap');
+  if (!wrap || !sale) return;
+  const showDueDate = sale.paymentMode === 'installments' || sale.paymentMode === 'both';
+  const today = new Date().toISOString().split('T')[0];
+  wrap.innerHTML = `
+    <div class="card" style="background:var(--bg-subtle);box-shadow:none;margin-bottom:1rem">
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">المبلغ *</label><input type="number" id="np-amount" class="form-control" min="0" step="0.01"></div>
+        <div class="form-group"><label class="form-label">التاريخ *</label><input type="date" id="np-date" class="form-control" value="${today}"></div>
+        ${showDueDate ? `<div class="form-group"><label class="form-label">تاريخ الاستحقاق</label><input type="date" id="np-due-date" class="form-control"></div>` : ''}
+        <div class="form-group"><label class="form-label">ملاحظة</label><input type="text" id="np-notes" class="form-control"></div>
+      </div>
+      <div style="display:flex;gap:.5rem">
+        <button class="btn btn-primary btn-sm" onclick="submitNewPayment('${saleId}')">✅ حفظ الدفعة</button>
+        <button class="btn btn-ghost btn-sm" onclick="toggleAddPaymentForm('${saleId}')">إلغاء</button>
+      </div>
+    </div>`;
+}
+
+async function submitNewPayment(saleId) {
+  const amount = parseFloat(document.getElementById('np-amount')?.value);
+  const date = document.getElementById('np-date')?.value;
+  const dueDate = document.getElementById('np-due-date')?.value || null;
+  const notes = document.getElementById('np-notes')?.value || '';
+  if (!amount || amount <= 0) { showToast('أدخل مبلغاً صحيحاً', 'warning'); return; }
+  if (!date) { showToast('أدخل التاريخ', 'warning'); return; }
+
+  showLoading();
+  const added = await DB.addPayment({ saleId, amount, date, dueDate, notes });
+  if (added) {
+    await loadData();
+    showAddPaymentForm = false;
+    renderPaymentPage(saleId);
+    updateDashboard();
+    renderSales();
+    showToast('تم تسجيل الدفعة بنجاح');
+  }
+  hideLoading();
+}
+
+async function deleteFreePayment(paymentId, saleId) {
+  if (!confirm('هل تريد حذف هذه الدفعة؟')) return;
+  showLoading();
+  const ok = await DB.deletePayment(paymentId);
+  if (ok) {
+    await loadData();
+    renderPaymentPage(saleId);
+    updateDashboard();
+    renderSales();
+    showToast('تم حذف الدفعة');
+  }
+  hideLoading();
+}
+
+async function savePaymentMode(saleId) {
+  const mode = document.getElementById('payment-mode-select')?.value;
+  if (!mode) return;
+  showLoading();
+  const ok = await DB.updateSalePaymentMode(saleId, mode);
+  if (ok) {
+    await loadData();
+    renderPaymentPage(saleId);
+    renderSales();
+    showToast('تم تحديث نظام الدفع');
+  }
+  hideLoading();
 }
 
 // ============================================================
