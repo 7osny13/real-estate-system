@@ -34,6 +34,17 @@
 }
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;overflow-x:hidden}
+  #upcoming-installments-list{
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+  max-width:100%;
+}
+#upcoming-installments-list table{
+  min-width:650px;
+}
+html{
+  overflow-x:hidden;
+}
 
 /* HEADER */
 .header{background:var(--primary);position:sticky;top:0;z-index:1000;box-shadow:0 4px 32px rgba(0,0,0,0.25)}
