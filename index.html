@@ -315,6 +315,10 @@ html{
 .confirm-line{font-size:.9rem;color:var(--text);margin-bottom:.35rem}
 .confirm-word{color:var(--danger);user-select:all}
 
+/* صفحة المصاريف */
+.exp-filters{display:grid;grid-template-columns:2fr 1.2fr 1.2fr 1fr auto;gap:.6rem;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:.9rem;margin-bottom:1rem;align-items:center}
+.exp-filters .form-control{padding:.55rem .7rem;min-width:0;width:100%}
+
 /* AUTH */
 .auth-screen{position:fixed;inset:0;z-index:5000;background:linear-gradient(160deg,var(--primary),#0a2a20);display:flex;align-items:center;justify-content:center;padding:1rem;overflow-y:auto}
 .auth-screen.hidden{display:none}
@@ -357,6 +361,8 @@ html{
   .modal-title{font-size:1.1rem}
   .report-table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
   .sale-actions .btn{flex:1;justify-content:center}
+  .exp-filters{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .exp-filters #exp-search{grid-column:1/-1}
   .ur-filters{grid-template-columns:1fr 1fr}
   .ur-filters #ur-project{grid-column:1/-1}
   .ur-grid{grid-template-columns:1fr 1fr}
@@ -432,6 +438,7 @@ html{
         💰 المبيعات
         <span class="badge-dot overdue-badge">0</span>
       </button>
+      <button class="nav-btn" data-view="expenses" onclick="showView('expenses')">💸 المصاريف</button>
       <button class="nav-btn" data-view="reports" onclick="showView('reports')">📈 التقارير</button>
     </nav>
     <button class="btn btn-sm btn-logout" onclick="authLogout()" title="تسجيل الخروج">🚪<span class="logout-txt"> خروج</span></button>
@@ -546,6 +553,23 @@ html{
     <div id="sales-list"></div>
   </div>
 
+  <!-- EXPENSES -->
+  <div id="expenses-view" class="view">
+    <div class="section-hd">
+      <div class="section-title">💸 المصاريف</div>
+      <button class="btn btn-primary" onclick="openAddExpenseModal()">➕ مصروف جديد</button>
+    </div>
+    <div class="exp-filters">
+      <input type="text" id="exp-search" class="form-control" placeholder="🔍 بحث في المستلم أو الملاحظات..." oninput="renderExpensesPage()">
+      <select id="exp-filter-project" class="form-control" onchange="renderExpensesPage()"></select>
+      <select id="exp-filter-category" class="form-control" onchange="renderExpensesPage()"></select>
+      <input type="month" id="exp-filter-month" class="form-control" onchange="renderExpensesPage()">
+      <button class="btn btn-ghost btn-sm" onclick="clearExpenseFilters()">✕ مسح</button>
+    </div>
+    <div class="ur-total" id="expenses-total" style="margin:0 0 1rem"></div>
+    <div id="expenses-list"></div>
+  </div>
+
   <!-- REPORTS -->
   <div id="reports-view" class="view">
     <div class="section-hd">
@@ -574,6 +598,7 @@ html{
   <button class="bnav-btn active" data-view="dashboard" onclick="showView('dashboard')"><span class="bnav-ico">📊</span>الرئيسية</button>
   <button class="bnav-btn" data-view="projects" onclick="showView('projects')"><span class="bnav-ico">🏢</span>المشاريع</button>
   <button class="bnav-btn" data-view="sales" onclick="showView('sales')"><span class="bnav-ico">💰</span>المبيعات<span class="badge-dot overdue-badge">0</span></button>
+  <button class="bnav-btn" data-view="expenses" onclick="showView('expenses')"><span class="bnav-ico">💸</span>المصاريف</button>
   <button class="bnav-btn" data-view="reports" onclick="showView('reports')"><span class="bnav-ico">📈</span>التقارير</button>
 </nav>
 
@@ -647,7 +672,9 @@ html{
   <div class="modal-box">
     <div class="modal-hd"><div class="modal-title">➕ إضافة مصروف</div><button class="modal-close" onclick="closeModal('add-expense-modal')">×</button></div>
     <form id="add-expense-form" onsubmit="addExpense(event)">
-      <input type="hidden" name="projectId" id="expense-project-id">
+      <div class="form-group" style="margin-bottom:1.1rem"><label class="form-label">المشروع *</label>
+        <select class="form-control" name="projectId" id="expense-project-id" required></select>
+      </div>
       <div class="form-grid">
         <div class="form-group"><label class="form-label">التاريخ *</label><input type="date" class="form-control" name="date" required></div>
         <div class="form-group"><label class="form-label">الفئة *</label>

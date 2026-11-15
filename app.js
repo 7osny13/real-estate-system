@@ -72,6 +72,36 @@ const DB = {
     return data.map(mapExpense);
   },
 
+  async getAllExpenses() {
+    const { data, error } = await this.supabase
+      .from('expenses').select('*').order('date', { ascending: false });
+    if (error) { console.error(error); return []; }
+    return data.map(mapExpense);
+  },
+
+  // ── فواتير المصروف (تحتاج عمود files — database/expenses_files_migration.sql) ──
+  async addExpenseFile(expenseId, fileInfo) {
+    const { data, error: fetchErr } = await this.supabase
+      .from('expenses').select('files').eq('id', expenseId).single();
+    if (fetchErr) { console.error('addExpenseFile fetch error:', fetchErr); return false; }
+    const files = Array.isArray(data?.files) ? [...data.files] : [];
+    files.push({ ...fileInfo, uploadedAt: new Date().toISOString() });
+    const { error } = await this.supabase.from('expenses').update({ files }).eq('id', expenseId);
+    if (error) { console.error('addExpenseFile update error:', error); return false; }
+    return true;
+  },
+
+  async deleteExpenseFile(expenseId, filePath) {
+    const { data, error: fetchErr } = await this.supabase
+      .from('expenses').select('files').eq('id', expenseId).single();
+    if (fetchErr) { console.error(fetchErr); return false; }
+    const files = (data?.files || []).filter(f => f.path !== filePath);
+    const { error } = await this.supabase.from('expenses').update({ files }).eq('id', expenseId);
+    if (error) { console.error(error); return false; }
+    await this.deleteFile(filePath);
+    return true;
+  },
+
   async addExpense(expense) {
     const row = {
       id: crypto.randomUUID(),
@@ -414,6 +444,7 @@ function mapExpense(e) {
     amount: parseFloat(e.amount),
     recipient: e.recipient,
     notes: e.notes,
+    files: Array.isArray(e.files) ? e.files : [],
     createdAt: e.created_at
   };
 }
@@ -667,6 +698,7 @@ function confirmDanger({ title, lines = [], requireText = '', confirmLabel = 'ح
 let projects = [];
 let sales = [];
 let freePayments = [];
+let allExpenses = [];
 
 // ============================================================
 // INIT
@@ -817,7 +849,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadData() {
   try {
-    [projects, sales, freePayments] = await Promise.all([DB.getProjects(), DB.getSales(), DB.getPayments()]);
+    [projects, sales, freePayments, allExpenses] = await Promise.all([DB.getProjects(), DB.getSales(), DB.getPayments(), DB.getAllExpenses()]);
     sales.forEach(applyLedger);
   } catch (err) {
     console.error(err);
@@ -996,6 +1028,7 @@ function showView(viewName, triggerEl) {
   if (viewName === 'projects') renderProjects();
   if (viewName === 'sales') renderSales();
   if (viewName === 'reports') renderUnifiedReport();
+  if (viewName === 'expenses') renderExpensesPage();
 }
 
 // ============================================================
@@ -2102,7 +2135,9 @@ async function deleteSale(saleId) {
 // ============================================================
 function openAddExpenseModal(projectId) {
   document.getElementById('add-expense-form').reset();
-  document.getElementById('expense-project-id').value = projectId;
+  const projSel = document.getElementById('expense-project-id');
+  projSel.innerHTML = '<option value="">اختر المشروع</option>' + projects.map(p => `<option value="${p.id}">${p.projectName}</option>`).join('');
+  projSel.value = projectId || (projects.length === 1 ? projects[0].id : '');
   document.querySelector('#add-expense-modal input[name="date"]').value = todayStr();
   document.getElementById('custom-category-group').style.display = 'none';
   document.getElementById('add-expense-modal').classList.add('active');
@@ -2141,8 +2176,7 @@ async function addExpense(event) {
   if (added) {
     closeModal('add-expense-modal');
     event.target.reset();
-    await showProjectDetails(added.projectId);
-    updateDashboard();
+    await refreshAfterExpenseChange(added.projectId);
     showToast('تم إضافة المصروف بنجاح');
   }
   hideLoading();
@@ -2163,8 +2197,7 @@ async function updateExpense(event) {
   });
   if (updated) {
     closeModal('edit-expense-modal');
-    await showProjectDetails(fd.get('projectId'));
-    updateDashboard();
+    await refreshAfterExpenseChange(fd.get('projectId'));
     showToast('تم تحديث المصروف');
   }
   hideLoading();
@@ -2175,8 +2208,7 @@ async function deleteExpense(projectId, expenseId) {
   showLoading();
   const ok = await DB.deleteExpense(expenseId);
   if (ok) {
-    await showProjectDetails(projectId);
-    updateDashboard();
+    await refreshAfterExpenseChange(projectId);
     showToast('تم حذف المصروف');
   }
   hideLoading();
@@ -2677,8 +2709,8 @@ function calculateProjectRevenue(projectId) {
 }
 
 async function calculateProjectCosts(projectId) {
-  const expenses = await DB.getProjectExpenses(projectId);
-  return expenses.reduce((s, e) => s + e.amount, 0);
+  // من النسخة المحمّلة في الذاكرة (تتحدث مع كل loadData) بدل طلب جديد لكل مشروع
+  return allExpenses.filter(e => e.projectId === projectId).reduce((s, e) => s + e.amount, 0);
 }
 
 function formatCurrency(amount) {
@@ -3644,6 +3676,152 @@ async function exportUnifiedExcel() {
   XLSX.writeFile(wb, `تقرير ${safe(d.projectLabel)} - ${safe(d.periodLabel)}.xlsx`);
   hideLoading();
   showToast('تم تنزيل ملف Excel');
+}
+
+// ============================================================
+// EXPENSES PAGE — صفحة مصاريف مستقلة
+// ============================================================
+async function refreshAfterExpenseChange(projectId) {
+  await loadData();
+  if (document.getElementById('project-details-modal')?.classList.contains('active') && projectId) await showProjectDetails(projectId);
+  if (document.getElementById('expenses-view')?.classList.contains('active')) renderExpensesPage();
+  if (document.getElementById('expense-files-modal')?.classList.contains('active')) renderExpenseFiles(document.getElementById('expense-files-modal').dataset.expenseId);
+  updateDashboard();
+}
+
+function populateExpenseFilters() {
+  const projSel = document.getElementById('exp-filter-project');
+  const catSel = document.getElementById('exp-filter-category');
+  if (!projSel || !catSel) return;
+  const curP = projSel.value, curC = catSel.value;
+  projSel.innerHTML = '<option value="">كل المشاريع</option>' + projects.map(p => `<option value="${p.id}">${p.projectName}</option>`).join('');
+  if (projects.some(p => p.id === curP)) projSel.value = curP;
+  const cats = [...new Set(allExpenses.map(e => getCategoryName(e.category, e.customCategory)))].sort();
+  catSel.innerHTML = '<option value="">كل الفئات</option>' + cats.map(c => `<option value="${c}">${c}</option>`).join('');
+  if (cats.includes(curC)) catSel.value = curC;
+}
+
+function clearExpenseFilters() {
+  ['exp-search', 'exp-filter-project', 'exp-filter-category', 'exp-filter-month'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  renderExpensesPage();
+}
+
+function renderExpensesPage() {
+  const list = document.getElementById('expenses-list');
+  if (!list) return;
+  populateExpenseFilters();
+  const q = (document.getElementById('exp-search').value || '').trim().toLowerCase();
+  const pid = document.getElementById('exp-filter-project').value;
+  const cat = document.getElementById('exp-filter-category').value;
+  const month = document.getElementById('exp-filter-month').value;
+
+  const rows = allExpenses.filter(e => {
+    if (pid && e.projectId !== pid) return false;
+    if (cat && getCategoryName(e.category, e.customCategory) !== cat) return false;
+    if (month && !String(e.date || '').startsWith(month)) return false;
+    if (q && !`${e.recipient || ''} ${e.notes || ''} ${getCategoryName(e.category, e.customCategory)}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const total = rows.reduce((s, e) => s + e.amount, 0);
+
+  document.getElementById('expenses-total').innerHTML =
+    `<span>${rows.length} بند${rows.length !== allExpenses.length ? ` من ${allExpenses.length}` : ''}</span><span class="ur-num" style="color:var(--danger)">${formatCurrency(total)} ج.م</span>`;
+
+  if (rows.length === 0) {
+    list.innerHTML = `<div class="empty"><div class="empty-icon">💸</div><p>${allExpenses.length === 0 ? 'لا توجد مصروفات بعد' : 'لا توجد نتائج'}</p></div>`;
+    return;
+  }
+
+  list.innerHTML = rows.map(e => {
+    const proj = projects.find(p => p.id === e.projectId);
+    const n = (e.files || []).length;
+    return `
+      <div class="expense-item" style="background:var(--bg-card);border:1px solid var(--border)">
+        <div class="expense-details">
+          <div class="expense-category-label">${getCategoryName(e.category, e.customCategory)}</div>
+          <div class="expense-date">${formatDate(e.date)} <span class="badge badge-blue" style="margin-right:.3rem">${proj?.projectName || '—'}</span></div>
+          ${e.recipient ? `<div class="expense-recipient">👤 ${e.recipient}</div>` : ''}
+          ${e.notes ? `<div class="expense-recipient">📝 ${e.notes}</div>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.4rem">
+          <span class="expense-amount-display" style="color:var(--danger)">${formatCurrency(e.amount)} ج.م</span>
+          <div class="expense-actions">
+            <button class="btn btn-ghost btn-xs" onclick="openExpenseFiles('${e.id}')">📎 فاتورة${n ? ` (${n})` : ''}</button>
+            <button class="btn btn-warning btn-xs" onclick="openEditExpenseModal('${e.projectId}','${e.id}')">✏️</button>
+            <button class="btn btn-danger btn-xs" onclick="deleteExpense('${e.projectId}','${e.id}')">🗑️</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── فواتير المصروف ────────────────────────────────────────
+function openExpenseFiles(expenseId) {
+  let modal = document.getElementById('expense-files-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'expense-files-modal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+      <div class="modal-box" style="max-width:640px">
+        <div class="modal-hd"><div class="modal-title">📎 فواتير المصروف</div><button class="modal-close" onclick="closeModal('expense-files-modal')">×</button></div>
+        <div id="expense-files-body"></div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+  modal.dataset.expenseId = expenseId;
+  renderExpenseFiles(expenseId);
+  modal.classList.add('active');
+}
+
+function renderExpenseFiles(expenseId) {
+  const body = document.getElementById('expense-files-body');
+  const e = allExpenses.find(x => x.id === expenseId);
+  if (!body || !e) return;
+  const files = e.files || [];
+  body.innerHTML = `
+    <div style="font-size:.88rem;color:var(--text-muted);margin-bottom:1rem">${getCategoryName(e.category, e.customCategory)} — ${formatCurrency(e.amount)} ج.م — ${formatDate(e.date)}</div>
+    <label class="btn btn-primary" style="cursor:pointer;margin-bottom:.4rem">
+      📤 رفع فاتورة (صورة أو PDF)
+      <input type="file" accept="image/*,.pdf" style="display:none" onchange="uploadExpenseFile(this, '${expenseId}')">
+    </label>
+    <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:1rem">JPG, PNG, PDF — حجم أقصى 10MB</div>
+    ${files.length === 0 ? `<div class="empty" style="padding:1.5rem"><p>لا توجد فواتير مرفوعة</p></div>` : files.map(f => `
+      <div class="pay-row" style="border-right-color:var(--info)">
+        <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.type === 'pdf' ? '📄' : '🖼️'} ${f.name}</div>
+        <div style="display:flex;gap:.3rem;flex-shrink:0">
+          <button class="btn btn-secondary btn-xs" onclick="openStoredFile('${f.path}')">👁️ عرض</button>
+          <button class="btn btn-danger btn-xs" onclick="removeExpenseFile('${expenseId}', '${f.path}')">🗑️</button>
+        </div>
+      </div>`).join('')}`;
+}
+
+async function uploadExpenseFile(input, expenseId) {
+  const file = input.files[0];
+  if (!file) return;
+  showLoading();
+  const info = await DB.uploadFile(file, `expenses/${expenseId}`);
+  if (info) {
+    const ok = await DB.addExpenseFile(expenseId, info);
+    if (ok) {
+      await refreshAfterExpenseChange(null);
+      showToast('تم رفع الفاتورة');
+    } else {
+      await DB.deleteFile(info.path);
+      showToast('تعذر حفظ الفاتورة — لازم تشغيل سكريبت قاعدة البيانات (expenses_files_migration.sql) أولاً', 'error', 6000);
+    }
+  }
+  input.value = '';
+  hideLoading();
+}
+
+async function removeExpenseFile(expenseId, filePath) {
+  if (!confirm('هل تريد حذف هذه الفاتورة؟')) return;
+  showLoading();
+  const ok = await DB.deleteExpenseFile(expenseId, filePath);
+  if (ok) { await refreshAfterExpenseChange(null); showToast('تم حذف الفاتورة'); }
+  else showToast('حدث خطأ', 'error');
+  hideLoading();
 }
 
 // ============================================================
