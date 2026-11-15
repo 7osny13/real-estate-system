@@ -72,6 +72,34 @@ const DB = {
     return data.map(mapExpense);
   },
 
+  // ══════════════════════════════════════════════════════════
+  // UNITS — جدول الوحدات (database/units_migration.sql)
+  // ══════════════════════════════════════════════════════════
+  async getUnits() {
+    const { data, error } = await this.supabase.from('units').select('*');
+    if (error) { console.error('getUnits error:', error); return []; }
+    return data.map(mapUnit);
+  },
+
+  async addUnits(rows) {
+    const { data, error } = await this.supabase.from('units').insert(rows.map(unitToRow)).select();
+    if (error) { console.error('addUnits error:', error); showToast('تعذر حفظ الوحدات — تأكد من تشغيل units_migration.sql', 'error', 6000); return null; }
+    return data.map(mapUnit);
+  },
+
+  async updateUnit(id, unit) {
+    const { error } = await this.supabase.from('units')
+      .update({ ...unitToRow(unit), updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) { console.error('updateUnit error:', error); showToast('تعذر حفظ الوحدة — تأكد من تشغيل units_migration.sql', 'error', 6000); return false; }
+    return true;
+  },
+
+  async deleteUnit(id) {
+    const { error } = await this.supabase.from('units').delete().eq('id', id);
+    if (error) { console.error(error); showToast('خطأ في حذف الوحدة', 'error'); return false; }
+    return true;
+  },
+
   async getAllExpenses() {
     const { data, error } = await this.supabase
       .from('expenses').select('*').order('date', { ascending: false });
@@ -434,6 +462,45 @@ function mapProject(p) {
   };
 }
 
+function mapUnit(u) {
+  return {
+    id: u.id,
+    projectId: u.project_id,
+    unitNumber: u.unit_number || '',
+    unitType: u.unit_type || 'apartment',
+    floor: u.floor ?? 0,
+    area: parseFloat(u.area) || 0,
+    direction: u.direction || '',
+    model: u.model || '',
+    status: u.status || 'available',
+    reservedBy: u.reserved_by || '',
+    reservedPhone: u.reserved_phone || '',
+    reservedAmount: parseFloat(u.reserved_amount) || 0,
+    reservedDate: u.reserved_date || '',
+    saleId: u.sale_id || null,
+    notes: u.notes || ''
+  };
+}
+
+function unitToRow(u) {
+  const reserved = u.status === 'reserved';
+  return {
+    project_id: u.projectId,
+    unit_number: String(u.unitNumber).trim(),
+    unit_type: u.unitType || 'apartment',
+    floor: parseInt(u.floor) || 0,
+    area: parseFloat(u.area) || 0,
+    direction: u.direction || '',
+    model: u.model || '',
+    status: u.status || 'available',
+    reserved_by: reserved ? (u.reservedBy || '') : '',
+    reserved_phone: reserved ? (u.reservedPhone || '') : '',
+    reserved_amount: reserved ? (parseFloat(u.reservedAmount) || 0) : 0,
+    reserved_date: reserved && u.reservedDate ? u.reservedDate : null,
+    notes: u.notes || ''
+  };
+}
+
 function mapExpense(e) {
   return {
     id: e.id,
@@ -699,6 +766,7 @@ let projects = [];
 let sales = [];
 let freePayments = [];
 let allExpenses = [];
+let units = [];
 
 // ============================================================
 // INIT
@@ -849,7 +917,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadData() {
   try {
-    [projects, sales, freePayments, allExpenses] = await Promise.all([DB.getProjects(), DB.getSales(), DB.getPayments(), DB.getAllExpenses()]);
+    [projects, sales, freePayments, allExpenses, units] = await Promise.all([DB.getProjects(), DB.getSales(), DB.getPayments(), DB.getAllExpenses(), DB.getUnits()]);
     sales.forEach(applyLedger);
   } catch (err) {
     console.error(err);
@@ -1421,6 +1489,7 @@ function renderProjectCard(p) {
         </div>
         <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:.75rem">إيرادات: <strong style="color:var(--gold)">${formatCurrency(revenue)} ج.م</strong></div>
         <div class="proj-actions" onclick="event.stopPropagation()">
+          <button class="btn btn-primary btn-xs" onclick="openUnitsModal('${p.id}')">🏠 الوحدات${units.filter(u => u.projectId === p.id).length ? ` (${units.filter(u => u.projectId === p.id).length})` : ''}</button>
           <button class="btn btn-gold btn-xs" onclick="openEditProjectModal('${p.id}')">✏️ تعديل</button>
           <button class="btn btn-pdf btn-xs" onclick="exportProjectPDF('${p.id}')">📄 PDF</button>
           <button class="btn btn-danger btn-xs" onclick="deleteProject('${p.id}')">🗑️</button>
@@ -3806,6 +3875,320 @@ async function removeExpenseFile(expenseId, filePath) {
   const ok = await DB.deleteExpenseFile(expenseId, filePath);
   if (ok) { await refreshAfterExpenseChange(null); showToast('تم حذف الفاتورة'); }
   else showToast('حدث خطأ', 'error');
+  hideLoading();
+}
+
+// ============================================================
+// UNITS — الوحدات: شبكة بالأدوار، إضافة/تعديل، توليد سريع، حجز
+// ============================================================
+const UNIT_STATUS = {
+  available: { label: 'متاحة', cls: 'u-available' },
+  reserved:  { label: 'محجوزة', cls: 'u-reserved' },
+  sold:      { label: 'مباعة', cls: 'u-sold' }
+};
+let unitsFilter = '';
+
+const normUnitNo = s => String(s || '').trim().toLowerCase().replace(/\s+/g, '');
+
+// البيعة المرتبطة بالوحدة: بالربط المباشر، أو بتطابق رقم الوحدة داخل نفس المشروع
+function getUnitSale(unit) {
+  if (unit.saleId) { const s = sales.find(x => x.id === unit.saleId); if (s) return s; }
+  const key = normUnitNo(unit.unitNumber);
+  if (!key) return null;
+  return sales.find(s => s.projectId === unit.projectId && normUnitNo(s.unitNumber) === key) || null;
+}
+
+// الحالة الفعلية: لو فيه بيعة على الوحدة فهي مباعة مهما كانت الحالة المسجلة
+function getUnitStatus(unit) {
+  return getUnitSale(unit) ? 'sold' : (UNIT_STATUS[unit.status] ? unit.status : 'available');
+}
+
+function floorLabel(f) { return parseInt(f) === 0 ? 'الدور الأرضي' : `الدور ${f}`; }
+
+function sortUnits(list) {
+  return list.slice().sort((x, y) => (x.floor - y.floor) ||
+    String(x.unitNumber).localeCompare(String(y.unitNumber), 'en', { numeric: true }));
+}
+
+function ensureUnitsModals() {
+  if (document.getElementById('units-modal')) return;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <div id="units-modal" class="modal">
+      <div class="modal-box" style="max-width:1000px">
+        <div class="modal-hd"><div class="modal-title" id="units-modal-title">الوحدات</div><button class="modal-close" onclick="closeModal('units-modal')">×</button></div>
+        <div id="units-modal-content"></div>
+      </div>
+    </div>
+    <div id="unit-form-modal" class="modal" style="z-index:2100">
+      <div class="modal-box" style="max-width:560px">
+        <div class="modal-hd"><div class="modal-title" id="unit-form-title">وحدة</div><button class="modal-close" onclick="closeModal('unit-form-modal')">×</button></div>
+        <form id="unit-form" onsubmit="saveUnit(event)">
+          <input type="hidden" name="unitId"><input type="hidden" name="projectId">
+          <div class="form-grid">
+            <div class="form-group"><label class="form-label">رقم الوحدة *</label><input type="text" class="form-control" name="unitNumber" required placeholder="مثال: 101A"></div>
+            <div class="form-group"><label class="form-label">النوع</label><select class="form-control" name="unitType"><option value="apartment">🏠 شقة</option><option value="shop">🏪 محل</option></select></div>
+            <div class="form-group"><label class="form-label">الدور</label><input type="number" class="form-control" name="floor" min="0" inputmode="numeric" placeholder="0 = أرضي"></div>
+            <div class="form-group"><label class="form-label">النموذج</label><input type="text" class="form-control" name="model" placeholder="مثال: A"></div>
+            <div class="form-group"><label class="form-label">المساحة (م²)</label><input type="number" class="form-control" name="area" min="0" step="0.01" inputmode="decimal"></div>
+            <div class="form-group"><label class="form-label">الاتجاه / الواجهة</label><input type="text" class="form-control" name="direction" placeholder="اختياري"></div>
+          </div>
+          <div id="unit-sold-info"></div>
+          <div class="form-group" id="unit-status-group" style="margin:1rem 0"><label class="form-label">الحالة</label>
+            <select class="form-control" name="status" onchange="toggleUnitReserveFields()">
+              <option value="available">🟢 متاحة</option><option value="reserved">🟡 محجوزة</option><option value="sold">🔴 مباعة</option>
+            </select>
+          </div>
+          <div id="unit-reserve-fields" class="gen-box" style="display:none">
+            <div class="ledger-title" style="margin:0 0 .6rem">🟡 بيانات الحجز</div>
+            <div class="form-grid">
+              <div class="form-group"><label class="form-label">اسم الحاجز</label><input type="text" class="form-control" name="reservedBy"></div>
+              <div class="form-group"><label class="form-label">التليفون</label><input type="tel" class="form-control" name="reservedPhone" inputmode="tel"></div>
+              <div class="form-group"><label class="form-label">مبلغ الحجز (لو دفع)</label><input type="number" class="form-control" name="reservedAmount" min="0" step="0.01" inputmode="decimal" placeholder="0"></div>
+              <div class="form-group"><label class="form-label">تاريخ الحجز</label><input type="date" class="form-control" name="reservedDate"></div>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:1.25rem"><label class="form-label">ملاحظات</label><input type="text" class="form-control" name="notes"></div>
+          <div style="display:flex;gap:.6rem;flex-wrap:wrap">
+            <button type="submit" class="btn btn-primary" style="flex:1;justify-content:center">💾 حفظ</button>
+            <button type="button" class="btn btn-danger" id="unit-delete-btn" onclick="deleteUnitFromForm()">🗑️ حذف</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div id="units-gen-modal" class="modal" style="z-index:2100">
+      <div class="modal-box" style="max-width:560px">
+        <div class="modal-hd"><div class="modal-title">⚡ توليد وحدات</div><button class="modal-close" onclick="closeModal('units-gen-modal')">×</button></div>
+        <input type="hidden" id="ug-project">
+        <div class="form-group" style="margin-bottom:1rem"><label class="form-label">طريقة الترقيم</label>
+          <select class="form-control" id="ug-scheme" onchange="updateUnitsGenPreview()">
+            <option value="floor">دور + رقم — 101، 102 … 201، 202</option>
+            <option value="letters">دور + رقم + حرف النموذج — 101A، 201A … 101B</option>
+            <option value="seq">أرقام متسلسلة — 1، 2، 3 …</option>
+          </select>
+        </div>
+        <div class="form-grid">
+          <div class="form-group"><label class="form-label">عدد الأدوار</label><input type="number" class="form-control" id="ug-floors" min="1" max="60" value="4" inputmode="numeric" oninput="updateUnitsGenPreview()"></div>
+          <div class="form-group"><label class="form-label">يبدأ من الدور</label><input type="number" class="form-control" id="ug-first" min="0" max="60" value="1" inputmode="numeric" oninput="updateUnitsGenPreview()"></div>
+          <div class="form-group"><label class="form-label" id="ug-per-label">عدد الشقق في الدور</label><input type="number" class="form-control" id="ug-per" min="1" max="50" value="4" inputmode="numeric" oninput="updateUnitsGenPreview()"></div>
+          <div class="form-group" id="ug-letters-group" style="display:none"><label class="form-label">حروف النماذج</label><input type="text" class="form-control" id="ug-letters" value="A, B" placeholder="A, B" oninput="updateUnitsGenPreview()"></div>
+          <div class="form-group"><label class="form-label">النوع</label><select class="form-control" id="ug-type"><option value="apartment">🏠 شقة</option><option value="shop">🏪 محل</option></select></div>
+          <div class="form-group"><label class="form-label">المساحة (اختياري)</label><input type="number" class="form-control" id="ug-area" min="0" step="0.01" inputmode="decimal" placeholder="نفس المساحة للكل"></div>
+        </div>
+        <div class="info-box" id="ug-preview" style="margin-top:1rem"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="saveGeneratedUnits()">💾 إضافة الوحدات</button>
+      </div>
+    </div>`;
+  while (wrap.firstElementChild) document.body.appendChild(wrap.firstElementChild);
+}
+
+function openUnitsModal(projectId) {
+  ensureUnitsModals();
+  unitsFilter = '';
+  document.getElementById('units-modal').dataset.projectId = projectId;
+  renderUnitsModal();
+  document.getElementById('units-modal').classList.add('active');
+}
+
+function setUnitsFilter(f) { unitsFilter = unitsFilter === f ? '' : f; renderUnitsModal(); }
+
+function renderUnitsModal() {
+  const modal = document.getElementById('units-modal');
+  if (!modal) return;
+  const projectId = modal.dataset.projectId;
+  const project = projects.find(p => p.id === projectId);
+  if (!project) return;
+  document.getElementById('units-modal-title').textContent = `🏠 الوحدات — ${project.projectName}`;
+
+  const list = sortUnits(units.filter(u => u.projectId === projectId));
+  const counts = { available: 0, reserved: 0, sold: 0 };
+  list.forEach(u => counts[getUnitStatus(u)]++);
+
+  // بيعات في المشروع ليس لها وحدة مسجلة بنفس الرقم
+  const unitKeys = new Set(list.map(u => normUnitNo(u.unitNumber)));
+  const orphanSales = sales.filter(s => s.projectId === projectId && !list.some(u => u.saleId === s.id) && !unitKeys.has(normUnitNo(s.unitNumber)));
+
+  const chip = (key, color) => `<button type="button" class="u-chip ${unitsFilter === key ? 'on' : ''}" onclick="setUnitsFilter('${key}')"><span class="u-dot" style="background:${color}"></span>${UNIT_STATUS[key].label} <b>${counts[key]}</b></button>`;
+
+  const shown = unitsFilter ? list.filter(u => getUnitStatus(u) === unitsFilter) : list;
+  const floors = [...new Set(shown.map(u => u.floor))].sort((x, y) => x - y);
+
+  const grid = list.length === 0
+    ? `<div class="empty"><div class="empty-icon">🏠</div><p>لا توجد وحدات مسجلة لهذا المشروع بعد.<br>استخدم "توليد وحدات" لإضافتها مرة واحدة.</p></div>`
+    : shown.length === 0 ? `<div class="empty"><p>لا توجد وحدات بهذه الحالة</p></div>`
+    : floors.map(f => `
+      <div class="u-floor">
+        <div class="u-floor-label">${floorLabel(f)}</div>
+        <div class="u-grid">
+          ${shown.filter(u => u.floor === f).map(u => {
+            const st = getUnitStatus(u);
+            const sale = getUnitSale(u);
+            const who = st === 'sold' ? (sale ? shortName(sale.customerName) : '') : st === 'reserved' ? shortName(u.reservedBy) : '';
+            return `<button type="button" class="u-tile ${UNIT_STATUS[st].cls}" onclick="openUnitForm('${u.id}')">
+              <span class="u-no">${u.unitType === 'shop' ? '🏪 ' : ''}${u.unitNumber}</span>
+              <span class="u-meta">${[u.model ? `نموذج ${u.model}` : '', u.area ? `${u.area} م²` : ''].filter(Boolean).join(' · ') || '&nbsp;'}</span>
+              <span class="u-who">${who || UNIT_STATUS[st].label}</span>
+            </button>`;
+          }).join('')}
+        </div>
+      </div>`).join('');
+
+  document.getElementById('units-modal-content').innerHTML = `
+    <div class="u-toolbar">
+      <div class="u-chips">
+        ${chip('available', '#1e7e4a')}${chip('reserved', '#c9952a')}${chip('sold', '#c0392b')}
+        <span class="u-total">الإجمالي <b>${list.length}</b></span>
+      </div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button class="btn btn-gold btn-sm" onclick="openUnitsGenerator('${projectId}')">⚡ توليد وحدات</button>
+        <button class="btn btn-primary btn-sm" onclick="openUnitForm(null, '${projectId}')">➕ وحدة</button>
+      </div>
+    </div>
+    ${orphanSales.length ? `<div class="info-box">💡 ${orphanSales.length} بيعة في هذا المشروع رقم وحدتها غير موجود في الجدول: ${orphanSales.map(s => `<b>${s.unitNumber || 'بدون رقم'}</b> (${shortName(s.customerName)})`).join('، ')}</div>` : ''}
+    ${grid}`;
+}
+
+function toggleUnitReserveFields() {
+  const form = document.getElementById('unit-form');
+  document.getElementById('unit-reserve-fields').style.display = form.status.value === 'reserved' ? 'block' : 'none';
+  if (form.status.value === 'reserved' && !form.reservedDate.value) form.reservedDate.value = todayStr();
+}
+
+function openUnitForm(unitId, projectId) {
+  ensureUnitsModals();
+  const form = document.getElementById('unit-form');
+  form.reset();
+  const u = unitId ? units.find(x => x.id === unitId) : null;
+  const sale = u ? getUnitSale(u) : null;
+  document.getElementById('unit-form-title').textContent = u ? `وحدة ${u.unitNumber}` : 'وحدة جديدة';
+  form.unitId.value = u?.id || '';
+  form.projectId.value = u?.projectId || projectId;
+  if (u) {
+    form.unitNumber.value = u.unitNumber; form.unitType.value = u.unitType; form.floor.value = u.floor;
+    form.model.value = u.model; form.area.value = u.area || ''; form.direction.value = u.direction;
+    form.status.value = UNIT_STATUS[u.status] ? u.status : 'available';
+    form.reservedBy.value = u.reservedBy; form.reservedPhone.value = u.reservedPhone;
+    form.reservedAmount.value = u.reservedAmount || ''; form.reservedDate.value = u.reservedDate || '';
+    form.notes.value = u.notes;
+  }
+  // وحدة عليها بيعة: الحالة "مباعة" تلقائياً ولا تُعدّل من هنا
+  document.getElementById('unit-status-group').style.display = sale ? 'none' : '';
+  document.getElementById('unit-sold-info').innerHTML = sale
+    ? `<div class="info-box" style="margin-top:1rem;background:#fce8e6;border-color:var(--danger);color:#7a1f15">🔴 مباعة — ${sale.customerName}
+        <button type="button" class="btn btn-ghost btn-xs" style="margin-right:.5rem" onclick="closeModal('unit-form-modal');showSaleInstallments('${sale.id}')">📋 حساب العميل</button></div>` : '';
+  document.getElementById('unit-delete-btn').style.display = u ? '' : 'none';
+  toggleUnitReserveFields();
+  if (sale) document.getElementById('unit-reserve-fields').style.display = 'none';
+  document.getElementById('unit-form-modal').classList.add('active');
+}
+
+async function saveUnit(event) {
+  event.preventDefault();
+  const fd = new FormData(event.target);
+  const id = fd.get('unitId');
+  const unit = Object.fromEntries(fd.entries());
+  const existing = id ? units.find(u => u.id === id) : null;
+  if (existing && getUnitSale(existing)) unit.status = existing.status === 'reserved' ? 'available' : existing.status;
+  const dup = units.find(u => u.projectId === unit.projectId && u.id !== id && normUnitNo(u.unitNumber) === normUnitNo(unit.unitNumber));
+  if (dup) { showToast(`رقم الوحدة ${unit.unitNumber} موجود بالفعل في هذا المشروع`, 'warning'); return; }
+  if (unit.status === 'reserved' && !String(unit.reservedBy).trim()) { showToast('اكتب اسم الحاجز', 'warning'); return; }
+
+  showLoading();
+  const ok = id ? await DB.updateUnit(id, unit) : await DB.addUnits([unit]);
+  if (ok) {
+    await loadData();
+    closeModal('unit-form-modal');
+    renderUnitsModal();
+    renderProjects();
+    showToast(id ? 'تم حفظ الوحدة' : 'تمت إضافة الوحدة');
+  }
+  hideLoading();
+}
+
+async function deleteUnitFromForm() {
+  const id = document.getElementById('unit-form').unitId.value;
+  const u = units.find(x => x.id === id);
+  if (!u) return;
+  const sale = getUnitSale(u);
+  const ok1 = await confirmDanger({
+    title: `حذف وحدة ${u.unitNumber}`,
+    lines: sale
+      ? [`الوحدة عليها بيعة للعميل <b>${sale.customerName}</b>.`, 'حذف الوحدة من الجدول لا يحذف البيعة ولا دفعاتها.']
+      : ['سيتم حذف الوحدة من جدول الوحدات فقط.'],
+    confirmLabel: 'حذف الوحدة'
+  });
+  if (!ok1) return;
+  showLoading();
+  if (await DB.deleteUnit(id)) {
+    await loadData();
+    closeModal('unit-form-modal');
+    renderUnitsModal();
+    renderProjects();
+    showToast('تم حذف الوحدة');
+  }
+  hideLoading();
+}
+
+// ── التوليد السريع ───────────────────────────────────────
+function openUnitsGenerator(projectId) {
+  ensureUnitsModals();
+  document.getElementById('ug-project').value = projectId;
+  updateUnitsGenPreview();
+  document.getElementById('units-gen-modal').classList.add('active');
+}
+
+function buildGeneratedUnits() {
+  const projectId = document.getElementById('ug-project').value;
+  const scheme = document.getElementById('ug-scheme').value;
+  const floors = Math.min(parseInt(document.getElementById('ug-floors').value) || 0, 60);
+  const first = parseInt(document.getElementById('ug-first').value) || 0;
+  const per = Math.min(parseInt(document.getElementById('ug-per').value) || 0, 50);
+  const unitType = document.getElementById('ug-type').value;
+  const area = parseFloat(document.getElementById('ug-area').value) || 0;
+  const letters = document.getElementById('ug-letters').value.split(/[\s,،]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+  const out = [];
+  if (floors < 1 || per < 1) return out;
+  const mk = (unitNumber, floor, model = '') => out.push({ projectId, unitNumber: String(unitNumber), unitType, floor, area, model, status: 'available' });
+  const pad = n => String(n).padStart(2, '0');
+
+  if (scheme === 'seq') {
+    let n = 1;
+    for (let f = 0; f < floors; f++) for (let i = 0; i < per; i++) mk(n++, first + f);
+  } else if (scheme === 'floor') {
+    for (let f = 0; f < floors; f++) for (let i = 1; i <= per; i++) mk(`${first + f}${pad(i)}`, first + f);
+  } else {
+    for (const L of (letters.length ? letters : ['A'])) for (let i = 1; i <= per; i++) for (let f = 0; f < floors; f++) mk(`${first + f}${pad(i)}${L}`, first + f, L);
+  }
+  return out;
+}
+
+function updateUnitsGenPreview() {
+  const scheme = document.getElementById('ug-scheme').value;
+  document.getElementById('ug-letters-group').style.display = scheme === 'letters' ? '' : 'none';
+  document.getElementById('ug-per-label').textContent = scheme === 'letters' ? 'عدد الشقق في الدور (لكل حرف)' : 'عدد الشقق في الدور';
+  const gen = buildGeneratedUnits();
+  const projectId = document.getElementById('ug-project').value;
+  const have = new Set(units.filter(u => u.projectId === projectId).map(u => normUnitNo(u.unitNumber)));
+  const fresh = gen.filter(u => !have.has(normUnitNo(u.unitNumber)));
+  const sample = gen.slice(0, 10).map(u => u.unitNumber).join('، ');
+  document.getElementById('ug-preview').innerHTML = gen.length === 0 ? 'اكتب عدد الأدوار وعدد الشقق'
+    : `سيتم إضافة <b>${fresh.length}</b> وحدة${gen.length !== fresh.length ? ` (${gen.length - fresh.length} موجودة بالفعل وسيتم تخطيها)` : ''}.<br>الأرقام: ${sample}${gen.length > 10 ? ` … ${gen[gen.length - 1].unitNumber}` : ''}`;
+}
+
+async function saveGeneratedUnits() {
+  const projectId = document.getElementById('ug-project').value;
+  const have = new Set(units.filter(u => u.projectId === projectId).map(u => normUnitNo(u.unitNumber)));
+  const fresh = buildGeneratedUnits().filter(u => !have.has(normUnitNo(u.unitNumber)));
+  if (fresh.length === 0) { showToast('لا توجد وحدات جديدة للإضافة', 'warning'); return; }
+  showLoading();
+  const added = await DB.addUnits(fresh);
+  if (added) {
+    await loadData();
+    closeModal('units-gen-modal');
+    renderUnitsModal();
+    renderProjects();
+    showToast(`تمت إضافة ${added.length} وحدة`);
+  }
   hideLoading();
 }
 
