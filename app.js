@@ -152,6 +152,7 @@ const DB = {
 
   async updateSale(id, updates) {
     const row = {
+      ...(updates.projectId ? { project_id: updates.projectId } : {}),
       unit_type: updates.unitType,
       unit_number: updates.unitNumber || '',
       sale_date: updates.saleDate,
@@ -491,6 +492,14 @@ function buildInstallmentsArray(sale) {
 }
 
 // ============================================================
+// LOCAL DATE HELPERS — تاريخ اليوم بتوقيت الجهاز (مش UTC)
+// ============================================================
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// ============================================================
 // GLOBAL STATE
 // ============================================================
 let projects = [];
@@ -507,7 +516,7 @@ async function startApp() {
   showLoading();
 
   // Default dates
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayStr();
   document.querySelectorAll('input[type="date"]').forEach(el => { if (!el.value) el.value = today; });
 
   await loadData();
@@ -816,9 +825,9 @@ function hideLoading() {
 // ============================================================
 function showView(viewName, triggerEl) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.nav-btn, .bnav-btn').forEach(t => t.classList.toggle('active', t.dataset.view === viewName));
   document.getElementById(`${viewName}-view`).classList.add('active');
-  (triggerEl || event?.target)?.classList.add('active');
+  window.scrollTo(0, 0);
 
   if (viewName === 'dashboard') { updateDashboard(); checkOverdueInstallments(); }
   if (viewName === 'projects') renderProjects();
@@ -866,7 +875,7 @@ function selectGlobalSearchResult(saleId) {
   closeGlobalSearch();
   const input = document.getElementById('global-search-input');
   if (input) input.value = '';
-  showView('sales', document.querySelectorAll('.nav-btn')[2]);
+  showView('sales');
   showSaleInstallments(saleId);
 }
 
@@ -1074,7 +1083,7 @@ function renderUpcomingInstallments() {
             <td style="padding:.65rem 1rem;font-weight:700;color:var(--gold)">${formatCurrency(item.inst.remainingAmount || item.inst.totalAmount)} ج.م</td>
             <td style="padding:.65rem 1rem">${statusLabel}</td>
             <td style="padding:.65rem 1rem">
-              <button class="btn btn-primary btn-xs" onclick="showSaleInstallments('${item.sale.id}');showView('sales',document.querySelectorAll('.nav-btn')[2])">
+              <button class="btn btn-primary btn-xs" onclick="showSaleInstallments('${item.sale.id}');showView('sales')">
                 📋 فتح
               </button>
             </td>
@@ -1103,7 +1112,7 @@ function renderPaymentAlerts() {
   if (!container) return;
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const currentMonthKey = today.toISOString().slice(0, 7);
+  const currentMonthKey = todayStr().slice(0, 7);
 
   const urgent = [], warning = [], complete = [];
 
@@ -1183,18 +1192,16 @@ function checkOverdueInstallments() {
   }
 
   // Show badge on sales tab
-  const badge = document.getElementById('overdue-badge');
-  if (overdueCount > 0) {
-    if (badge) { badge.textContent = overdueCount; badge.style.display = 'inline-flex'; }
-  } else {
-    if (badge) badge.style.display = 'none';
-  }
+  document.querySelectorAll('.overdue-badge').forEach(badge => {
+    badge.textContent = overdueCount;
+    badge.style.display = overdueCount > 0 ? 'inline-flex' : 'none';
+  });
 
   // Show alert card on dashboard
   const alertCard = document.getElementById('overdue-alert-card');
   if (alertCard) {
     if (overdueCount > 0) {
-      alertCard.style.display = 'block';
+      alertCard.style.display = 'flex';
       alertCard.querySelector('#overdue-count').textContent = overdueCount;
     } else {
       alertCard.style.display = 'none';
@@ -1290,14 +1297,19 @@ function renderSales(filteredList = null) {
             </div>
           </div>
         </div>
-        <div style="display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap">
+        <div class="sale-actions">
           <button class="btn btn-primary btn-sm" onclick="showSaleInstallments('${sale.id}')">📋 الأقساط (${sale.payments?.length || 0})</button>
           <button class="btn btn-gold btn-sm" onclick="openPaymentPage('${sale.id}')">💳 صفحة الدفع</button>
-          <button class="btn btn-warning btn-sm" onclick="openSaleFilesModal('${sale.id}')">📎 ملفات (${(sale.files||[]).length})</button>
-          <button class="btn btn-pdf btn-sm" onclick="exportClientPDF('${sale.id}')">📄 كشف حساب</button>
-          <button class="btn btn-success btn-sm" onclick="printClientPage('${sale.id}')">🖨️ طباعة بيانات</button>
-          <button class="btn btn-ghost btn-sm" onclick="openEditSaleModal('${sale.id}')">✏️ تعديل</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteSale('${sale.id}')">🗑️</button>
+          <details class="more-menu">
+            <summary class="btn btn-ghost btn-sm">⋯ المزيد</summary>
+            <div class="more-menu-list">
+              <button class="btn btn-ghost btn-sm" onclick="openSaleFilesModal('${sale.id}')">📎 ملفات (${(sale.files||[]).length})</button>
+              <button class="btn btn-ghost btn-sm" onclick="exportClientPDF('${sale.id}')">📄 كشف حساب</button>
+              <button class="btn btn-ghost btn-sm" onclick="printClientPage('${sale.id}')">🖨️ طباعة بيانات</button>
+              <button class="btn btn-ghost btn-sm" onclick="openEditSaleModal('${sale.id}')">✏️ تعديل</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteSale('${sale.id}')">🗑️ حذف</button>
+            </div>
+          </details>
         </div>
       </div>`;
   }).join('');
@@ -1422,7 +1434,9 @@ function showSaleInstallments(saleId) {
             <div style="font-weight:700;font-size:1.1rem;color:var(--primary)">${inst.label}</div>
             <div style="color:var(--text-secondary);font-size:0.9rem;display:flex;align-items:center;gap:0.5rem">
               📅 ${formatDate(inst.dueDate)}
-              <button class="btn btn-xs" style="background:var(--bg-main);padding:0.2rem 0.5rem;font-size:0.75rem" onclick="editInstallmentDate('${saleId}', ${idx}, '${inst.dueDate}')">✏️ تعديل</button>
+              <label class="inst-date-edit" title="تعديل تاريخ الاستحقاق">✏️ تعديل
+                <input type="date" value="${inst.dueDate || ''}" onchange="editInstallmentDate('${saleId}', ${idx}, this.value)">
+              </label>
             </div>
           </div>
           <div style="text-align:left">
@@ -1442,7 +1456,7 @@ function showSaleInstallments(saleId) {
                 value="${inst.remainingAmount}">
               <input type="date" id="partial-date-${idx}"
                 style="padding:0.5rem;border:2px solid var(--border);border-radius:8px;font-family:Cairo,sans-serif"
-                value="${new Date().toISOString().split('T')[0]}">
+                value="${todayStr()}">
               <input type="text" id="partial-note-${idx}" placeholder="ملاحظة (اختياري)"
                 style="padding:0.5rem;border:2px solid var(--border);border-radius:8px;font-family:Cairo,sans-serif;flex:1;min-width:100px">
               <button class="btn btn-primary btn-sm" onclick="submitPartialPayment('${saleId}', ${idx})">💾 تسجيل</button>
@@ -1537,7 +1551,7 @@ async function payRemainingAmount(saleId, installmentIndex) {
   showLoading();
   const ok = await DB.addPartialPayment(saleId, installmentIndex, {
     amount: inst.remainingAmount,
-    date: new Date().toISOString().split('T')[0],
+    date: todayStr(),
     note: 'سداد المتبقي'
   });
   if (ok) {
@@ -1571,8 +1585,7 @@ async function removePartialPayment(saleId, installmentIndex, partialPaymentId) 
 }
 
 // Edit installment due date
-function editInstallmentDate(saleId, installmentIndex, currentDate) {
-  const newDate = prompt('أدخل التاريخ الجديد (YYYY-MM-DD):', currentDate);
+function editInstallmentDate(saleId, installmentIndex, newDate) {
   if (!newDate) return;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) { showToast('صيغة التاريخ غير صحيحة', 'warning'); return; }
   showLoading();
@@ -1600,7 +1613,7 @@ function openAddSaleModal() {
   document.getElementById('add-sale-form').reset();
   installmentRows = [];
   renderInstallmentRows();
-  document.querySelector('#add-sale-modal input[name="saleDate"]').value = new Date().toISOString().split('T')[0];
+  document.querySelector('#add-sale-modal input[name="saleDate"]').value = todayStr();
   document.getElementById('installment-fields').style.display = 'none';
   document.getElementById('add-sale-modal').classList.add('active');
 }
@@ -1832,6 +1845,7 @@ async function updateSale(event) {
   showLoading();
   const fd = new FormData(event.target);
   const updated = await DB.updateSale(fd.get('saleId'), {
+    projectId: fd.get('projectId'),
     unitType: fd.get('unitType'),
     unitNumber: fd.get('unitNumber') || '',
     saleDate: fd.get('saleDate'),
@@ -1873,7 +1887,7 @@ async function deleteSale(saleId) {
 function openAddExpenseModal(projectId) {
   document.getElementById('add-expense-form').reset();
   document.getElementById('expense-project-id').value = projectId;
-  document.querySelector('#add-expense-modal input[name="date"]').value = new Date().toISOString().split('T')[0];
+  document.querySelector('#add-expense-modal input[name="date"]').value = todayStr();
   document.getElementById('custom-category-group').style.display = 'none';
   document.getElementById('add-expense-modal').classList.add('active');
 }
@@ -3084,7 +3098,7 @@ function renderAddPaymentForm(saleId) {
   const wrap = document.getElementById('add-payment-form-wrap');
   if (!wrap || !sale) return;
   const showDueDate = sale.paymentMode === 'installments' || sale.paymentMode === 'both';
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayStr();
   wrap.innerHTML = `
     <div class="card" style="background:var(--bg-subtle);box-shadow:none;margin-bottom:1rem">
       <div class="form-grid">

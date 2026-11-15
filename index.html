@@ -32,6 +32,10 @@
   --radius-md:     14px;
   --radius-lg:     20px;
   --radius-xl:     28px;
+  /* أسماء قديمة ما زالت مستخدمة في app.js */
+  --bg-main:        var(--bg-subtle);
+  --text-secondary: var(--text-muted);
+  --secondary:      var(--gold);
 }
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;overflow-x:hidden}
@@ -214,6 +218,51 @@ html{
 /* INFO BOX */
 .info-box{background:#eaf3fb;border-right:4px solid var(--info);border-radius:var(--radius-sm);padding:.8rem 1rem;font-size:.86rem;color:#1a3a5c;margin:.75rem 0}
 
+/* ── تنسيقات كانت ناقصة (نوافذ الأقساط وتفاصيل المشروع) ── */
+.badge-success{background:#e8f5ee;color:#1e7e4a}
+.badge-danger{background:#fce8e6;color:#c0392b}
+.badge-warning{background:#fef0e7;color:#c0642b}
+.badge-info{background:#e8f1fb;color:#1a5276}
+.btn-secondary{background:var(--bg-subtle);color:var(--text);border:1.5px solid var(--border)}
+.btn-secondary:hover{background:var(--border)}
+.summary-card{background:var(--bg-subtle);border-radius:var(--radius-md);border:1px solid var(--border);border-right:4px solid var(--primary);text-align:center}
+.summary-card.gold{border-right-color:var(--gold)}
+.summary-card.danger{border-right-color:var(--danger)}
+.summary-label{font-size:.8rem;color:var(--text-muted);font-weight:600;margin-bottom:.3rem}
+.summary-value{font-family:'Tajawal',sans-serif;font-weight:900;color:var(--primary);line-height:1.15}
+.summary-card.gold .summary-value{color:var(--gold)}
+.summary-card.danger .summary-value{color:var(--danger)}
+.empty-state{text-align:center;padding:2.5rem 1rem;color:var(--text-muted);grid-column:1/-1}
+.empty-state-icon{font-size:3rem;opacity:.3;margin-bottom:.75rem}
+.expense-summary{background:var(--bg-subtle);border-radius:var(--radius-md);padding:1rem;margin-bottom:1rem}
+.expense-category{display:flex;justify-content:space-between;align-items:center;gap:.5rem;padding:.6rem .75rem;margin-bottom:.35rem;background:#fff;border-radius:var(--radius-sm);border-right:3px solid var(--primary)}
+.category-name{font-weight:700;color:var(--primary);font-size:.9rem}
+.category-count{font-size:.78rem;color:var(--text-muted);margin-left:.5rem}
+.category-amount{font-family:'Tajawal',sans-serif;font-weight:700;color:var(--gold);white-space:nowrap}
+.expense-item{gap:.75rem;flex-wrap:wrap}
+.expense-details{min-width:0;flex:1}
+.expense-category-label{font-weight:700;color:var(--primary);font-size:.9rem}
+.expense-recipient{font-size:.8rem;color:var(--text-muted)}
+.expense-amount-display{font-family:'Tajawal',sans-serif;font-size:1.05rem;font-weight:700;color:var(--gold);white-space:nowrap}
+.expense-actions{display:flex;gap:.3rem}
+
+/* تعديل تاريخ القسط */
+.inst-date-edit{position:relative;display:inline-flex;align-items:center;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:.15rem .5rem;font-size:.75rem;font-weight:700;color:var(--primary);cursor:pointer;overflow:hidden}
+.inst-date-edit input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+
+/* أزرار كارت البيعة */
+.sale-actions{display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap;align-items:flex-start}
+.more-menu{flex:1;min-width:110px}
+.more-menu summary{list-style:none;display:inline-flex}
+.more-menu summary::-webkit-details-marker{display:none}
+.more-menu[open] summary{background:var(--border)}
+.more-menu-list{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem;padding:.6rem;background:var(--bg-subtle);border-radius:var(--radius-sm)}
+
+@media(min-width:1100px){.header-inner{flex-wrap:nowrap}.nav{flex-wrap:nowrap}.nav-btn{padding:.55rem .8rem}.global-search{min-width:150px}.logo{font-size:1.2rem;white-space:nowrap}}
+
+/* شريط التنقل السفلي (موبايل) */
+.bottom-nav{display:none}
+
 /* AUTH */
 .auth-screen{position:fixed;inset:0;z-index:5000;background:linear-gradient(160deg,var(--primary),#0a2a20);display:flex;align-items:center;justify-content:center;padding:1rem;overflow-y:auto}
 .auth-screen.hidden{display:none}
@@ -233,13 +282,36 @@ html{
 
 /* RESPONSIVE */
 @media(max-width:768px){
-  .header-inner{padding:.75rem 1rem}
-  .main{padding:1rem}
-  .charts-row{grid-template-columns:1fr}
+  .header-inner{padding:.6rem .85rem;min-height:0;gap:.6rem;flex-wrap:nowrap}
+  .logo span{display:none}
+  .logo-mark{width:36px;height:36px;font-size:1.1rem}
+  .nav{display:none}
+  .global-search{min-width:0;max-width:none}
+  .btn-logout{padding:.42rem .6rem}
+  .logout-txt{display:none}
+  .main{padding:1rem .85rem 5.5rem}
+  .charts-row{grid-template-columns:1fr !important}
   .projects-grid{grid-template-columns:1fr}
-  .stats-row{grid-template-columns:1fr 1fr}
-  .modal-box{padding:1.25rem}
+  .stats-row{grid-template-columns:1fr 1fr;gap:.6rem}
+  .stat-card{padding:.9rem 1rem}
+  .stat-value{font-size:1.2rem;word-break:break-word}
+  .card{padding:1.1rem;border-radius:var(--radius-md)}
+  .section-title{font-size:1.25rem}
   .form-grid{grid-template-columns:1fr}
+  .form-control{font-size:16px}
+  .modal{padding:0}
+  .modal-box{padding:1.1rem;border-radius:0;min-height:100%;max-width:none !important}
+  .modal-hd{position:sticky;top:0;background:var(--bg-card);z-index:5;margin:-1.1rem -1.1rem 1rem;padding:.9rem 1.1rem}
+  .modal-title{font-size:1.1rem}
+  .report-table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
+  .sale-actions .btn{flex:1;justify-content:center}
+  .more-menu-list .btn{flex:1 1 45%}
+  .bottom-nav{display:flex;position:fixed;bottom:0;right:0;left:0;z-index:1000;background:var(--primary);box-shadow:0 -4px 24px rgba(0,0,0,.25);padding-bottom:env(safe-area-inset-bottom)}
+  .bnav-btn{position:relative;flex:1;background:none;border:none;color:rgba(255,255,255,.65);font-family:'Cairo',sans-serif;font-size:.68rem;font-weight:700;padding:.5rem .15rem .45rem;display:flex;flex-direction:column;align-items:center;gap:.1rem;cursor:pointer}
+  .bnav-btn .bnav-ico{font-size:1.25rem;line-height:1.2}
+  .bnav-btn.active{color:var(--gold-light)}
+  .bnav-btn.active::before{content:'';position:absolute;top:0;right:25%;left:25%;height:3px;border-radius:0 0 3px 3px;background:var(--gold)}
+  .bnav-btn .badge-dot{top:2px;left:calc(50% - 22px)}
 }
 </style>
 </head>
@@ -287,16 +359,16 @@ html{
       <div class="global-search-results" id="global-search-results"></div>
     </div>
     <nav class="nav">
-      <button class="nav-btn active" onclick="showView('dashboard',this)">📊 لوحة التحكم</button>
-      <button class="nav-btn" onclick="showView('projects',this)">🏢 المشاريع</button>
-      <button class="nav-btn" onclick="showView('sales',this)" style="position:relative">
+      <button class="nav-btn active" data-view="dashboard" onclick="showView('dashboard')">📊 لوحة التحكم</button>
+      <button class="nav-btn" data-view="projects" onclick="showView('projects')">🏢 المشاريع</button>
+      <button class="nav-btn" data-view="sales" onclick="showView('sales')" style="position:relative">
         💰 المبيعات
-        <span id="overdue-badge" class="badge-dot">0</span>
+        <span class="badge-dot overdue-badge">0</span>
       </button>
-      <button class="nav-btn" onclick="showView('reports',this)">📈 التقارير</button>
-      <button class="nav-btn" onclick="showView('monthly-report',this)">📅 التقرير الشهري</button>
+      <button class="nav-btn" data-view="reports" onclick="showView('reports')">📈 التقارير</button>
+      <button class="nav-btn" data-view="monthly-report" onclick="showView('monthly-report')">📅 التقرير الشهري</button>
     </nav>
-    <button class="btn btn-sm btn-logout" onclick="authLogout()" title="تسجيل الخروج">🚪 خروج</button>
+    <button class="btn btn-sm btn-logout" onclick="authLogout()" title="تسجيل الخروج">🚪<span class="logout-txt"> خروج</span></button>
   </div>
 </header>
 
@@ -309,7 +381,7 @@ html{
         <div class="overdue-alert-text">⚠️ يوجد <span id="overdue-count">0</span> قسط متأخر يحتاج متابعة</div>
         <div style="font-size:.82rem;color:var(--text-muted)">اضغط لعرض التفاصيل</div>
       </div>
-      <button class="btn btn-danger btn-sm" onclick="showView('sales',document.querySelectorAll('.nav-btn')[2])">عرض الآن</button>
+      <button class="btn btn-danger btn-sm" onclick="showView('sales')">عرض الآن</button>
     </div>
     <div class="stats-row">
       <div class="stat-card"><div class="stat-label">إجمالي المشاريع</div><div class="stat-value" id="total-projects">0</div><div class="stat-sub">مشروع مسجل</div></div>
@@ -485,6 +557,15 @@ html{
     </div>
   </div>
 </main>
+
+<!-- BOTTOM NAV (mobile) -->
+<nav class="bottom-nav">
+  <button class="bnav-btn active" data-view="dashboard" onclick="showView('dashboard')"><span class="bnav-ico">📊</span>الرئيسية</button>
+  <button class="bnav-btn" data-view="projects" onclick="showView('projects')"><span class="bnav-ico">🏢</span>المشاريع</button>
+  <button class="bnav-btn" data-view="sales" onclick="showView('sales')"><span class="bnav-ico">💰</span>المبيعات<span class="badge-dot overdue-badge">0</span></button>
+  <button class="bnav-btn" data-view="reports" onclick="showView('reports')"><span class="bnav-ico">📈</span>التقارير</button>
+  <button class="bnav-btn" data-view="monthly-report" onclick="showView('monthly-report')"><span class="bnav-ico">📅</span>الشهري</button>
+</nav>
 
 <!-- MODALS -->
 
