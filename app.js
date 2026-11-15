@@ -500,9 +500,11 @@ let freePayments = [];
 // ============================================================
 // INIT
 // ============================================================
-document.addEventListener('DOMContentLoaded', async () => {
+let appStarted = false;
+async function startApp() {
+  if (appStarted) return;
+  appStarted = true;
   showLoading();
-  DB.init();
 
   // Default dates
   const today = new Date().toISOString().split('T')[0];
@@ -525,6 +527,121 @@ document.addEventListener('DOMContentLoaded', async () => {
     const wrap = document.getElementById('global-search-wrap');
     if (wrap && !wrap.contains(e.target)) closeGlobalSearch();
   });
+}
+
+// ============================================================
+// AUTH — تسجيل الدخول (Supabase Auth)
+// لا يتم تحميل أي بيانات قبل وجود جلسة دخول صالحة
+// ============================================================
+function showAuthScreen(mode) {
+  const subs = {
+    login: 'سجّل الدخول للمتابعة',
+    forgot: 'اكتب بريدك وسنرسل لك رابط تغيير كلمة السر',
+    newpass: 'اكتب كلمة السر الجديدة'
+  };
+  document.getElementById('auth-screen').classList.remove('hidden');
+  document.getElementById('auth-sub').textContent = subs[mode] || '';
+  ['login', 'forgot', 'newpass'].forEach(m => {
+    document.getElementById(`auth-${m}-form`).style.display = m === mode ? 'flex' : 'none';
+  });
+  setAuthMsg('');
+}
+
+function hideAuthScreen() {
+  document.getElementById('auth-screen').classList.add('hidden');
+}
+
+function setAuthMsg(text, type = 'error') {
+  const el = document.getElementById('auth-msg');
+  el.textContent = text;
+  el.className = 'auth-msg' + (text ? ' ' + type : '');
+}
+
+function setAuthBusy(btnId, busy, label) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = busy;
+  btn.textContent = busy ? 'لحظة...' : label;
+}
+
+async function authLogin(event) {
+  event.preventDefault();
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  setAuthMsg('');
+  setAuthBusy('auth-login-btn', true);
+  const { error } = await window.supabaseClient.auth.signInWithPassword({ email, password });
+  setAuthBusy('auth-login-btn', false, 'دخول');
+  if (error) {
+    console.error(error);
+    setAuthMsg(error.message === 'Invalid login credentials'
+      ? 'البريد أو كلمة السر غير صحيحة'
+      : 'تعذر تسجيل الدخول — تأكد من الاتصال وحاول مرة أخرى');
+    return;
+  }
+  document.getElementById('auth-password').value = '';
+  hideAuthScreen();
+  startApp();
+}
+
+async function authSendReset(event) {
+  event.preventDefault();
+  const email = document.getElementById('auth-forgot-email').value.trim();
+  setAuthMsg('');
+  setAuthBusy('auth-forgot-btn', true);
+  const { error } = await window.supabaseClient.auth.resetPasswordForEmail(email, {
+    redirectTo: location.origin + location.pathname
+  });
+  setAuthBusy('auth-forgot-btn', false, 'إرسال رابط تغيير كلمة السر');
+  if (error) {
+    console.error(error);
+    setAuthMsg('تعذر إرسال الرابط — حاول مرة أخرى بعد قليل');
+    return;
+  }
+  setAuthMsg('لو البريد مسجّل، هيوصلك رابط تغيير كلمة السر خلال دقائق', 'ok');
+}
+
+async function authSetNewPassword(event) {
+  event.preventDefault();
+  const p1 = document.getElementById('auth-newpass').value;
+  const p2 = document.getElementById('auth-newpass2').value;
+  if (p1 !== p2) { setAuthMsg('كلمتا السر غير متطابقتين'); return; }
+  setAuthMsg('');
+  setAuthBusy('auth-newpass-btn', true);
+  const { error } = await window.supabaseClient.auth.updateUser({ password: p1 });
+  setAuthBusy('auth-newpass-btn', false, 'حفظ كلمة السر');
+  if (error) {
+    console.error(error);
+    setAuthMsg('تعذر حفظ كلمة السر — الرابط قد يكون منتهي، اطلب رابط جديد');
+    return;
+  }
+  window.__authRecovery = false;
+  history.replaceState(null, '', location.pathname);
+  hideAuthScreen();
+  showToast('تم تغيير كلمة السر');
+  startApp();
+}
+
+async function authLogout() {
+  if (!confirm('تسجيل الخروج؟')) return;
+  await window.supabaseClient.auth.signOut();
+  location.reload();
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  DB.init();
+  const sb = window.supabaseClient;
+  if (!sb) { showAuthScreen('login'); setAuthMsg('خطأ في الاتصال بقاعدة البيانات'); return; }
+
+  sb.auth.onAuthStateChange(event => {
+    if (event === 'PASSWORD_RECOVERY') { window.__authRecovery = true; showAuthScreen('newpass'); }
+  });
+
+  const { data, error } = await sb.auth.getSession();
+  if (window.__authRecovery) { showAuthScreen('newpass'); return; }
+  if (error || !data?.session) { showAuthScreen('login'); return; }
+  hideAuthScreen();
+  startApp();
 });
 
 async function loadData() {

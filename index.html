@@ -8,6 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script>window.__authRecovery = (location.hash + location.search).includes('type=recovery');</script>
 <script src="config.js"></script>
 <style>
 :root {
@@ -213,6 +214,23 @@ html{
 /* INFO BOX */
 .info-box{background:#eaf3fb;border-right:4px solid var(--info);border-radius:var(--radius-sm);padding:.8rem 1rem;font-size:.86rem;color:#1a3a5c;margin:.75rem 0}
 
+/* AUTH */
+.auth-screen{position:fixed;inset:0;z-index:5000;background:linear-gradient(160deg,var(--primary),#0a2a20);display:flex;align-items:center;justify-content:center;padding:1rem;overflow-y:auto}
+.auth-screen.hidden{display:none}
+.auth-card{background:var(--bg-card);border-radius:var(--radius-xl);padding:2.25rem 2rem;width:100%;max-width:400px;box-shadow:0 24px 64px rgba(0,0,0,.35);text-align:center}
+.auth-logo{width:64px;height:64px;border-radius:var(--radius-md);background:linear-gradient(135deg,var(--gold),var(--accent));display:flex;align-items:center;justify-content:center;font-size:2rem;margin:0 auto 1rem}
+.auth-title{font-family:'Tajawal',sans-serif;font-size:1.4rem;font-weight:900;color:var(--primary);margin-bottom:.25rem}
+.auth-sub{font-size:.88rem;color:var(--text-muted);margin-bottom:1.5rem}
+.auth-card form{display:flex;flex-direction:column;gap:.9rem;text-align:right}
+.auth-card .form-control{direction:ltr;text-align:left}
+.auth-link{background:none;border:none;color:var(--info);font-family:'Cairo',sans-serif;font-size:.86rem;font-weight:600;cursor:pointer;padding:.25rem}
+.auth-link:hover{text-decoration:underline}
+.auth-msg{font-size:.86rem;font-weight:600;border-radius:var(--radius-sm);padding:.65rem .8rem;margin-top:1rem;display:none}
+.auth-msg.error{display:block;background:#fce8e6;color:var(--danger)}
+.auth-msg.ok{display:block;background:#e8f5ee;color:var(--success)}
+.btn-logout{background:rgba(255,255,255,.12);color:#fff;border:1.5px solid rgba(255,255,255,.25)}
+.btn-logout:hover{background:rgba(255,255,255,.22)}
+
 /* RESPONSIVE */
 @media(max-width:768px){
   .header-inner{padding:.75rem 1rem}
@@ -226,6 +244,36 @@ html{
 </style>
 </head>
 <body>
+
+<!-- AUTH SCREEN -->
+<div id="auth-screen" class="auth-screen">
+  <div class="auth-card">
+    <div class="auth-logo">🏗️</div>
+    <div class="auth-title">إدارة المشاريع العقارية</div>
+    <div class="auth-sub" id="auth-sub">جاري التحقق...</div>
+
+    <form id="auth-login-form" style="display:none" onsubmit="authLogin(event)">
+      <div class="form-group"><label class="form-label">البريد الإلكتروني</label><input type="email" class="form-control" id="auth-email" autocomplete="username" required></div>
+      <div class="form-group"><label class="form-label">كلمة السر</label><input type="password" class="form-control" id="auth-password" autocomplete="current-password" required></div>
+      <button type="submit" class="btn btn-primary" id="auth-login-btn" style="justify-content:center">دخول</button>
+      <button type="button" class="auth-link" onclick="showAuthScreen('forgot')">نسيت كلمة السر؟</button>
+    </form>
+
+    <form id="auth-forgot-form" style="display:none" onsubmit="authSendReset(event)">
+      <div class="form-group"><label class="form-label">البريد الإلكتروني</label><input type="email" class="form-control" id="auth-forgot-email" autocomplete="username" required></div>
+      <button type="submit" class="btn btn-primary" id="auth-forgot-btn" style="justify-content:center">إرسال رابط تغيير كلمة السر</button>
+      <button type="button" class="auth-link" onclick="showAuthScreen('login')">رجوع لتسجيل الدخول</button>
+    </form>
+
+    <form id="auth-newpass-form" style="display:none" onsubmit="authSetNewPassword(event)">
+      <div class="form-group"><label class="form-label">كلمة السر الجديدة</label><input type="password" class="form-control" id="auth-newpass" autocomplete="new-password" minlength="8" required></div>
+      <div class="form-group"><label class="form-label">تأكيد كلمة السر</label><input type="password" class="form-control" id="auth-newpass2" autocomplete="new-password" minlength="8" required></div>
+      <button type="submit" class="btn btn-primary" id="auth-newpass-btn" style="justify-content:center">حفظ كلمة السر</button>
+    </form>
+
+    <div id="auth-msg" class="auth-msg"></div>
+  </div>
+</div>
 
 <header class="header">
   <div class="header-inner">
@@ -248,6 +296,7 @@ html{
       <button class="nav-btn" onclick="showView('reports',this)">📈 التقارير</button>
       <button class="nav-btn" onclick="showView('monthly-report',this)">📅 التقرير الشهري</button>
     </nav>
+    <button class="btn btn-sm btn-logout" onclick="authLogout()" title="تسجيل الخروج">🚪 خروج</button>
   </div>
 </header>
 
