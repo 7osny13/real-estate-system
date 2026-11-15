@@ -1039,8 +1039,8 @@ function showToast(message, type = 'success', duration = 3500) {
 
   const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
   const colors = {
-    success: '#1a4d2e',
-    error: '#c0392b',
+    success: '#0b5563',
+    error: '#d6453d',
     warning: '#f39c12',
     info: '#2980b9'
   };
@@ -1049,7 +1049,7 @@ function showToast(message, type = 'success', duration = 3500) {
   toast.style.cssText = `
     background: ${colors[type]}; color: white;
     padding: 0.875rem 1.5rem; border-radius: 12px;
-    font-family: 'Cairo', sans-serif; font-size: 1rem; font-weight: 600;
+    font-family: 'Readex Pro', sans-serif; font-size: 1rem; font-weight: 600;
     box-shadow: 0 8px 24px rgba(0,0,0,0.2);
     display:flex; align-items:center; gap:0.5rem;
     animation: toastIn 0.3s ease-out forwards;
@@ -1087,7 +1087,7 @@ function showLoading() {
     position:fixed; inset:0; background:rgba(0,0,0,0.75);
     display:flex; align-items:center; justify-content:center;
     z-index:9999; color:white; font-size:1.5rem;
-    font-family:'Cairo',sans-serif;
+    font-family:'Readex Pro',sans-serif;
   `;
   el.innerHTML = `<div style="text-align:center"><div style="font-size:3rem;margin-bottom:1rem;animation:spin 1s linear infinite">⏳</div><div>جاري التحميل...</div></div>`;
   if (!document.getElementById('spin-style')) {
@@ -1278,10 +1278,10 @@ async function renderProjectsComparison() {
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { position: 'bottom', labels: { font: { family: 'Cairo', size: 11 }, boxWidth: 14 } } },
+        plugins: { legend: { position: 'bottom', labels: { font: { family: 'Readex Pro', size: 11 }, boxWidth: 14 } } },
         scales: {
-          x: { ticks: { font: { family: 'Cairo', size: 10 } } },
-          y: { ticks: { font: { family: 'Cairo', size: 10 }, callback: v => (v / 1000) + 'k' } }
+          x: { ticks: { font: { family: 'Readex Pro', size: 10 } } },
+          y: { ticks: { font: { family: 'Readex Pro', size: 10 }, callback: v => (v / 1000) + 'k' } }
         }
       }
     });
@@ -2505,9 +2505,9 @@ async function renderMonthlyReport() {
         type: 'pie',
         data: {
           labels: catEntries.map(([cat]) => cat),
-          datasets: [{ data: catEntries.map(([, amt]) => amt), backgroundColor: ['#c9982a', '#0f3d2e', '#2d8a60', '#e07b39', '#2471a3', '#c0392b', '#e67e22'] }]
+          datasets: [{ data: catEntries.map(([, amt]) => amt), backgroundColor: ['#0e8f94', '#0b5563', '#12a3a8', '#ef6f4f', '#2471a3', '#d6453d', '#ef6f4f'] }]
         },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { family: 'Cairo', size: 10 }, boxWidth: 12 } } } }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { family: 'Readex Pro', size: 10 }, boxWidth: 12 } } } }
       });
     }
   }
@@ -2828,13 +2828,13 @@ async function renderCharts(totalPaid, totalCosts) {
         labels,
         datasets: [
           { label: 'إيرادات', data: revenueData, backgroundColor: 'rgba(201,152,42,0.8)', borderRadius: 6 },
-          { label: 'تكاليف', data: costsData, backgroundColor: 'rgba(15,61,46,0.6)', borderRadius: 6 }
+          { label: 'تكاليف', data: costsData, backgroundColor: 'rgba(11,85,99,0.6)', borderRadius: 6 }
         ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { position: 'bottom', labels: { font: { family: 'Cairo', size: 11 }, boxWidth: 14 } } },
-        scales: { x: { ticks: { font: { family: 'Cairo', size: 10 } } }, y: { ticks: { font: { family: 'Cairo', size: 10 }, callback: v => (v/1000) + 'k' } } }
+        plugins: { legend: { position: 'bottom', labels: { font: { family: 'Readex Pro', size: 11 }, boxWidth: 14 } } },
+        scales: { x: { ticks: { font: { family: 'Readex Pro', size: 10 } } }, y: { ticks: { font: { family: 'Readex Pro', size: 10 }, callback: v => (v/1000) + 'k' } } }
       }
     });
   }
@@ -2860,11 +2860,11 @@ async function renderCharts(totalPaid, totalCosts) {
       type: 'doughnut',
       data: {
         labels: ['مدفوع', 'جزئي', 'قادم', 'متأخر'],
-        datasets: [{ data: [paid, partial, pending, overdue], backgroundColor: ['#1e7e4a','#e67e22','#2471a3','#c0392b'], borderWidth: 2 }]
+        datasets: [{ data: [paid, partial, pending, overdue], backgroundColor: ['#1a8a5f','#ef6f4f','#2471a3','#d6453d'], borderWidth: 2 }]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { position: 'bottom', labels: { font: { family: 'Cairo', size: 11 }, boxWidth: 14 } } }
+        plugins: { legend: { position: 'bottom', labels: { font: { family: 'Readex Pro', size: 11 }, boxWidth: 14 } } }
       }
     });
   }
@@ -2877,41 +2877,41 @@ async function renderCharts(totalPaid, totalCosts) {
 
 const PDF_STYLES = `
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@700;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap');
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:'Cairo',sans-serif; direction:rtl; color:#1c1c1a; background:#fff; padding:20px; font-size:13px; }
-    .pdf-header { background:#0f3d2e; color:#fff; padding:18px 24px; border-radius:8px; margin-bottom:20px; }
-    .pdf-header h1 { font-family:'Tajawal',sans-serif; font-size:20px; font-weight:900; margin-bottom:4px; }
+    body { font-family:'Readex Pro',sans-serif; direction:rtl; color:#16282c; background:#fff; padding:20px; font-size:13px; }
+    .pdf-header { background:#0b5563; color:#fff; padding:18px 24px; border-radius:8px; margin-bottom:20px; }
+    .pdf-header h1 { font-family:'Readex Pro',sans-serif; font-size:20px; font-weight:900; margin-bottom:4px; }
     .pdf-header p  { font-size:12px; opacity:.85; }
-    .pdf-meta { display:flex; justify-content:space-between; font-size:11px; color:#6b6860; margin-top:6px; }
-    .section-title { font-family:'Tajawal',sans-serif; font-weight:700; font-size:14px; color:#0f3d2e; border-right:4px solid #c9982a; padding-right:10px; margin:18px 0 10px; }
-    .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px 20px; background:#f7f5f0; border-radius:8px; padding:12px 16px; margin-bottom:12px; }
-    .info-row { display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid #e0ddd6; }
+    .pdf-meta { display:flex; justify-content:space-between; font-size:11px; color:#5f7478; margin-top:6px; }
+    .section-title { font-family:'Readex Pro',sans-serif; font-weight:700; font-size:14px; color:#0b5563; border-right:4px solid #0e8f94; padding-right:10px; margin:18px 0 10px; }
+    .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px 20px; background:#eef5f5; border-radius:8px; padding:12px 16px; margin-bottom:12px; }
+    .info-row { display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid #d9e6e6; }
     .info-row:last-child { border:none; }
-    .info-label { font-weight:700; color:#6b6860; font-size:12px; }
-    .info-value { font-weight:600; color:#1c1c1a; }
+    .info-label { font-weight:700; color:#5f7478; font-size:12px; }
+    .info-value { font-weight:600; color:#16282c; }
     .summary-boxes { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
     .summary-box { border-radius:8px; padding:12px; text-align:center; }
     .summary-box.green  { background:#e8f5ee; }
     .summary-box.gold   { background:#fdf3dc; }
     .summary-box.red    { background:#fce8e6; }
-    .summary-box .lbl   { font-size:11px; color:#6b6860; font-weight:600; margin-bottom:4px; }
-    .summary-box .val   { font-family:'Tajawal',sans-serif; font-size:18px; font-weight:900; }
-    .summary-box.green .val { color:#1e7e4a; }
+    .summary-box .lbl   { font-size:11px; color:#5f7478; font-weight:600; margin-bottom:4px; }
+    .summary-box .val   { font-family:'Readex Pro',sans-serif; font-size:18px; font-weight:900; }
+    .summary-box.green .val { color:#1a8a5f; }
     .summary-box.gold  .val { color:#9a6f10; }
-    .summary-box.red   .val { color:#c0392b; }
+    .summary-box.red   .val { color:#d6453d; }
     table { width:100%; border-collapse:collapse; font-size:12px; margin-bottom:16px; }
-    th { background:#0f3d2e; color:#fff; padding:8px 10px; text-align:right; font-weight:700; font-size:11px; }
-    td { padding:7px 10px; border-bottom:1px solid #e0ddd6; }
-    tr:nth-child(even) td { background:#f7f5f0; }
-    tr.overdue td { background:#fce8e6; color:#c0392b; }
+    th { background:#0b5563; color:#fff; padding:8px 10px; text-align:right; font-weight:700; font-size:11px; }
+    td { padding:7px 10px; border-bottom:1px solid #d9e6e6; }
+    tr:nth-child(even) td { background:#eef5f5; }
+    tr.overdue td { background:#fce8e6; color:#d6453d; }
     .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; }
-    .badge-green { background:#e8f5ee; color:#1e7e4a; }
-    .badge-red   { background:#fce8e6; color:#c0392b; }
+    .badge-green { background:#e8f5ee; color:#1a8a5f; }
+    .badge-red   { background:#fce8e6; color:#d6453d; }
     .badge-gold  { background:#fdf3dc; color:#9a6f10; }
     .badge-blue  { background:#e8f1fb; color:#1a5276; }
     .badge-orange{ background:#fef0e7; color:#c0642b; }
-    .footer { margin-top:24px; padding-top:12px; border-top:2px solid #e0ddd6; display:flex; justify-content:space-between; font-size:11px; color:#6b6860; }
+    .footer { margin-top:24px; padding-top:12px; border-top:2px solid #d9e6e6; display:flex; justify-content:space-between; font-size:11px; color:#5f7478; }
     @media print {
       body { padding:10px; }
       @page { margin:15mm; size:A4; }
@@ -2949,8 +2949,8 @@ async function exportClientPDF(saleId) {
       <td>${inst.label || 'قسط ' + (i+1)}</td>
       <td>${formatCurrency(inst.totalAmount)} ج.م</td>
       <td>${formatDate(inst.dueDate)}</td>
-      <td style="color:#1e7e4a;font-weight:700">${formatCurrency(inst.paidAmount || 0)} ج.م</td>
-      <td style="color:#c0392b;font-weight:700">${formatCurrency(inst.remainingAmount || 0)} ج.م</td>
+      <td style="color:#1a8a5f;font-weight:700">${formatCurrency(inst.paidAmount || 0)} ج.م</td>
+      <td style="color:#d6453d;font-weight:700">${formatCurrency(inst.remainingAmount || 0)} ج.م</td>
       <td>${statusBadge}</td>
     </tr>`;
     return { sortDate: inst.dueDate || sale.saleDate, html };
@@ -2964,8 +2964,8 @@ async function exportClientPDF(saleId) {
       <td>🆓 دفعة حرة</td>
       <td>${formatCurrency(p.amount)} ج.م</td>
       <td>${formatDate(p.date)}</td>
-      <td style="color:#1e7e4a;font-weight:700">${formatCurrency(p.amount)} ج.م</td>
-      <td style="color:#1e7e4a;font-weight:700">0.00 ج.م</td>
+      <td style="color:#1a8a5f;font-weight:700">${formatCurrency(p.amount)} ج.م</td>
+      <td style="color:#1a8a5f;font-weight:700">0.00 ج.م</td>
       <td>${p.notes || '—'}</td>
     </tr>`
   }));
@@ -3030,7 +3030,7 @@ async function exportProjectPDF(projectId) {
       <td>${getCategoryName(e.category, e.customCategory)}</td>
       <td>${formatDate(e.date)}</td>
       <td>${e.recipient || '—'}</td>
-      <td style="font-weight:700;color:#c9982a">${formatCurrency(e.amount)} ج.م</td>
+      <td style="font-weight:700;color:#0e8f94">${formatCurrency(e.amount)} ج.م</td>
       <td>${e.notes || '—'}</td>
     </tr>`).join('');
 
@@ -3043,9 +3043,9 @@ async function exportProjectPDF(projectId) {
       <td>${sale.customerPhone || '—'}</td>
       <td>${sale.unitType === 'apartment' ? 'شقة' : 'محل'} ${sale.unitNumber || ''}</td>
       <td>${formatDate(sale.saleDate)}</td>
-      <td style="font-weight:700;color:#c9982a">${formatCurrency(sale.totalPrice)} ج.م</td>
-      <td style="color:#1e7e4a;font-weight:700">${formatCurrency(paid)} ج.م</td>
-      <td style="color:${rem > 0 ? '#c0392b' : '#1e7e4a'};font-weight:700">${formatCurrency(rem)} ج.م</td>
+      <td style="font-weight:700;color:#0e8f94">${formatCurrency(sale.totalPrice)} ج.م</td>
+      <td style="color:#1a8a5f;font-weight:700">${formatCurrency(paid)} ج.م</td>
+      <td style="color:${rem > 0 ? '#d6453d' : '#1a8a5f'};font-weight:700">${formatCurrency(rem)} ج.م</td>
     </tr>`;}).join('');
 
   const html = `
@@ -3064,13 +3064,13 @@ async function exportProjectPDF(projectId) {
     <div class="section-title">💸 المصروفات (${expenses.length} بند — إجمالي: ${formatCurrency(totalCosts)} ج.م)</div>
     <table>
       <thead><tr><th>#</th><th>الفئة</th><th>التاريخ</th><th>المستلم</th><th>المبلغ</th><th>ملاحظات</th></tr></thead>
-      <tbody>${expRows || '<tr><td colspan="6" style="text-align:center;color:#6b6860">لا توجد مصروفات</td></tr>'}</tbody>
+      <tbody>${expRows || '<tr><td colspan="6" style="text-align:center;color:#5f7478">لا توجد مصروفات</td></tr>'}</tbody>
     </table>
 
     <div class="section-title">💰 المبيعات (${projectSales.length} عميل — متوقع: ${formatCurrency(totalExpected)} ج.م)</div>
     <table>
       <thead><tr><th>#</th><th>العميل</th><th>الهاتف</th><th>الوحدة</th><th>تاريخ البيع</th><th>السعر</th><th>المدفوع</th><th>المتبقي</th></tr></thead>
-      <tbody>${saleRows || '<tr><td colspan="8" style="text-align:center;color:#6b6860">لا توجد مبيعات</td></tr>'}</tbody>
+      <tbody>${saleRows || '<tr><td colspan="8" style="text-align:center;color:#5f7478">لا توجد مبيعات</td></tr>'}</tbody>
     </table>
 
     <div class="footer">
@@ -3127,10 +3127,10 @@ async function exportMonthlyPDF() {
       <td>${p.location || '—'}</td>
       <td><span class="badge ${p.status === 'under_construction' ? 'badge-orange' : 'badge-green'}">${p.status === 'under_construction' ? 'نشط' : 'جاهز'}</span></td>
       <td>${sales.filter(s => s.projectId === p.id).length}</td>
-      <td style="color:#c0392b;font-weight:700">${formatCurrency(costs)} ج.م</td>
-      <td style="color:#1e7e4a;font-weight:700">${formatCurrency(rev)} ج.م</td>
-      <td style="color:#c9982a;font-weight:700">${formatCurrency(exp)} ج.م</td>
-      <td style="font-weight:700;color:${profit >= 0 ? '#1e7e4a' : '#c0392b'}">${formatCurrency(profit)} ج.م</td>
+      <td style="color:#d6453d;font-weight:700">${formatCurrency(costs)} ج.م</td>
+      <td style="color:#1a8a5f;font-weight:700">${formatCurrency(rev)} ج.م</td>
+      <td style="color:#0e8f94;font-weight:700">${formatCurrency(exp)} ج.م</td>
+      <td style="font-weight:700;color:${profit >= 0 ? '#1a8a5f' : '#d6453d'}">${formatCurrency(profit)} ج.م</td>
     </tr>`;
   }));
 
@@ -3151,8 +3151,8 @@ async function exportMonthlyPDF() {
       <div class="info-row"><span class="info-label">إجمالي المشاريع</span><span class="info-value">${projects.length}</span></div>
       <div class="info-row"><span class="info-label">إجمالي عقود البيع</span><span class="info-value">${sales.length}</span></div>
       <div class="info-row"><span class="info-label">إجمالي المبيعات المتوقعة</span><span class="info-value">${formatCurrency(totalExpected)} ج.م</span></div>
-      <div class="info-row"><span class="info-label">المتبقي تحصيله</span><span class="info-value" style="color:#c0392b">${formatCurrency(totalExpected - totalPaid)} ج.م</span></div>
-      <div class="info-row"><span class="info-label">أقساط متأخرة</span><span class="info-value" style="color:#c0392b">${overdue.length} قسط</span></div>
+      <div class="info-row"><span class="info-label">المتبقي تحصيله</span><span class="info-value" style="color:#d6453d">${formatCurrency(totalExpected - totalPaid)} ج.م</span></div>
+      <div class="info-row"><span class="info-label">أقساط متأخرة</span><span class="info-value" style="color:#d6453d">${overdue.length} قسط</span></div>
     </div>
 
     ${overdue.length > 0 ? `
@@ -3160,7 +3160,7 @@ async function exportMonthlyPDF() {
     <table>
       <thead><tr><th>#</th><th>العميل</th><th>المشروع</th><th>القسط</th><th>تاريخ الاستحقاق</th><th>المتبقي</th><th>أيام التأخير</th></tr></thead>
       <tbody>${overdueRows}</tbody>
-    </table>` : `<div style="background:#e8f5ee;border-radius:8px;padding:12px;text-align:center;color:#1e7e4a;font-weight:700;margin-bottom:16px">✅ لا توجد أقساط متأخرة</div>`}
+    </table>` : `<div style="background:#e8f5ee;border-radius:8px;padding:12px;text-align:center;color:#1a8a5f;font-weight:700;margin-bottom:16px">✅ لا توجد أقساط متأخرة</div>`}
 
     <div class="section-title">📊 ملخص المشاريع</div>
     <table>
@@ -3200,15 +3200,15 @@ function printClientPage(saleId) {
     const statusAr = inst.status === 'paid' ? '✓ مدفوع'
       : inst.status === 'partial' ? '⏳ جزئي'
       : isOverdue ? '! متأخر' : '◷ قادم';
-    const color = inst.status === 'paid' ? '#1e7e4a'
-      : isOverdue ? '#c0392b' : inst.status === 'partial' ? '#e67e22' : '#2471a3';
+    const color = inst.status === 'paid' ? '#1a8a5f'
+      : isOverdue ? '#d6453d' : inst.status === 'partial' ? '#ef6f4f' : '#2471a3';
     const html = `<tr>
-      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;text-align:center">#</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6">${inst.label || `القسط ${i+1}`}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700">${formatCurrency(inst.totalAmount)} ج.م</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6">${formatDate(inst.dueDate)}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700;color:#1e7e4a">${formatCurrency(inst.paidAmount || 0)} ج.م</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700;color:${color}">${statusAr}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #d9e6e6;text-align:center">#</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #d9e6e6">${inst.label || `القسط ${i+1}`}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #d9e6e6;font-weight:700">${formatCurrency(inst.totalAmount)} ج.م</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #d9e6e6">${formatDate(inst.dueDate)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #d9e6e6;font-weight:700;color:#1a8a5f">${formatCurrency(inst.paidAmount || 0)} ج.م</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #d9e6e6;font-weight:700;color:${color}">${statusAr}</td>
     </tr>`;
     return { sortDate: inst.dueDate || sale.saleDate, html };
   });
@@ -3217,12 +3217,12 @@ function printClientPage(saleId) {
   const freeRowEntries = getFreePaymentsForSale(saleId).map(p => ({
     sortDate: p.date,
     html: `<tr>
-      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;text-align:center">#</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6">🆓 دفعة حرة</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700">${formatCurrency(p.amount)} ج.م</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6">${formatDate(p.date)}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;font-weight:700;color:#1e7e4a">${formatCurrency(p.amount)} ج.م</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #e0ddd6;color:#6b6860">${p.notes || '—'}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #d9e6e6;text-align:center">#</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #d9e6e6">🆓 دفعة حرة</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #d9e6e6;font-weight:700">${formatCurrency(p.amount)} ج.م</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #d9e6e6">${formatDate(p.date)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #d9e6e6;font-weight:700;color:#1a8a5f">${formatCurrency(p.amount)} ج.م</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #d9e6e6;color:#5f7478">${p.notes || '—'}</td>
     </tr>`
   }));
 
@@ -3233,36 +3233,36 @@ function printClientPage(saleId) {
 
   const html = `
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@700;900&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap');
       * { margin:0; padding:0; box-sizing:border-box; }
-      body { font-family:'Cairo',sans-serif; direction:rtl; color:#1c1c1a; padding:24px; font-size:13px; background:#fff; }
-      .header { background:#0f3d2e; color:#fff; padding:16px 20px; border-radius:10px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; }
-      .header h1 { font-family:'Tajawal',sans-serif; font-size:20px; font-weight:900; }
+      body { font-family:'Readex Pro',sans-serif; direction:rtl; color:#16282c; padding:24px; font-size:13px; background:#fff; }
+      .header { background:#0b5563; color:#fff; padding:16px 20px; border-radius:10px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; }
+      .header h1 { font-family:'Readex Pro',sans-serif; font-size:20px; font-weight:900; }
       .header .sub { font-size:11px; opacity:.8; margin-top:3px; }
       .logo-box { background:rgba(255,255,255,.15); border-radius:8px; padding:8px 14px; font-size:12px; font-weight:700; text-align:center; }
       .info-section { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
-      .info-card { background:#f7f5f0; border-radius:8px; padding:12px 16px; }
-      .info-card h3 { font-family:'Tajawal',sans-serif; font-size:13px; font-weight:700; color:#0f3d2e; border-bottom:2px solid #c9982a; padding-bottom:6px; margin-bottom:10px; }
+      .info-card { background:#eef5f5; border-radius:8px; padding:12px 16px; }
+      .info-card h3 { font-family:'Readex Pro',sans-serif; font-size:13px; font-weight:700; color:#0b5563; border-bottom:2px solid #0e8f94; padding-bottom:6px; margin-bottom:10px; }
       .info-row { display:flex; justify-content:space-between; padding:4px 0; font-size:12px; }
-      .info-row .lbl { color:#6b6860; font-weight:600; }
-      .info-row .val { font-weight:700; color:#1c1c1a; }
+      .info-row .lbl { color:#5f7478; font-weight:600; }
+      .info-row .val { font-weight:700; color:#16282c; }
       .totals { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:16px; }
       .total-box { border-radius:8px; padding:12px; text-align:center; }
-      .total-box .t-lbl { font-size:11px; color:#6b6860; font-weight:600; margin-bottom:4px; }
-      .total-box .t-val { font-family:'Tajawal',sans-serif; font-size:20px; font-weight:900; }
+      .total-box .t-lbl { font-size:11px; color:#5f7478; font-weight:600; margin-bottom:4px; }
+      .total-box .t-val { font-family:'Readex Pro',sans-serif; font-size:20px; font-weight:900; }
       .total-box.gold  { background:#fdf3dc; } .total-box.gold .t-val  { color:#9a6f10; }
-      .total-box.green { background:#e8f5ee; } .total-box.green .t-val { color:#1e7e4a; }
-      .total-box.red   { background:#fce8e6; } .total-box.red .t-val   { color:#c0392b; }
+      .total-box.green { background:#e8f5ee; } .total-box.green .t-val { color:#1a8a5f; }
+      .total-box.red   { background:#fce8e6; } .total-box.red .t-val   { color:#d6453d; }
       table { width:100%; border-collapse:collapse; font-size:12px; }
-      thead tr { background:#0f3d2e; color:#fff; }
+      thead tr { background:#0b5563; color:#fff; }
       th { padding:8px 10px; text-align:right; font-size:11px; font-weight:700; }
-      .next-inst { background:#fffbe6; border:2px solid #c9982a; border-radius:8px; padding:10px 14px; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; }
+      .next-inst { background:#fffbe6; border:2px solid #0e8f94; border-radius:8px; padding:10px 14px; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; }
       .next-inst .n-title { font-weight:700; color:#7a5c0a; font-size:12px; }
-      .next-inst .n-val { font-family:'Tajawal',sans-serif; font-size:18px; font-weight:900; color:#9a6f10; }
-      .note-box { background:#f0ede6; border-radius:8px; padding:10px 14px; margin-top:14px; font-size:12px; }
+      .next-inst .n-val { font-family:'Readex Pro',sans-serif; font-size:18px; font-weight:900; color:#9a6f10; }
+      .note-box { background:#f3f7f7; border-radius:8px; padding:10px 14px; margin-top:14px; font-size:12px; }
       .sig-row { display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:28px; }
-      .sig-box { border-top:2px solid #1c1c1a; padding-top:8px; text-align:center; font-size:11px; color:#6b6860; }
-      .footer { margin-top:16px; text-align:center; font-size:10px; color:#aaa; border-top:1px solid #e0ddd6; padding-top:8px; }
+      .sig-box { border-top:2px solid #16282c; padding-top:8px; text-align:center; font-size:11px; color:#5f7478; }
+      .footer { margin-top:16px; text-align:center; font-size:10px; color:#aaa; border-top:1px solid #d9e6e6; padding-top:8px; }
       @media print { body { padding:10px; } @page { margin:12mm; size:A4; } }
     </style>
 
@@ -3305,7 +3305,7 @@ function printClientPage(saleId) {
       <div class="n-val">${formatCurrency(nextInst.remainingAmount || nextInst.totalAmount)} ج.م</div>
     </div>` : ''}
 
-    <div style="font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;color:#0f3d2e;border-bottom:2px solid #c9982a;padding-bottom:6px;margin-bottom:10px">
+    <div style="font-family:'Readex Pro',sans-serif;font-size:13px;font-weight:700;color:#0b5563;border-bottom:2px solid #0e8f94;padding-bottom:6px;margin-bottom:10px">
       📋 جدول الأقساط
     </div>
     <table>
@@ -4095,7 +4095,7 @@ function renderUnitsModal() {
   document.getElementById('units-modal-content').innerHTML = `
     <div class="u-toolbar">
       <div class="u-chips">
-        ${chip('available', '#1e7e4a')}${chip('reserved', '#c9952a')}${chip('sold', '#c0392b')}
+        ${chip('available', '#1a8a5f')}${chip('reserved', '#0e8f94')}${chip('sold', '#d6453d')}
         <span class="u-total">الإجمالي <b>${list.length}</b></span>
       </div>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap">
@@ -4388,7 +4388,7 @@ function printBrokerReport(projectId) {
   if (!project || rows.length === 0) { showToast('لا توجد وحدات لهذا المشروع', 'warning'); return; }
   const counts = { available: 0, reserved: 0, sold: 0 };
   rows.forEach(r => counts[r.status]++);
-  const colors = { available: ['#eef8f2', '#1e7e4a'], reserved: ['#fdf6e3', '#b07d12'], sold: ['#fce8e6', '#c0392b'] };
+  const colors = { available: ['#eef8f2', '#1a8a5f'], reserved: ['#fdf6e3', '#b07d12'], sold: ['#fce8e6', '#d6453d'] };
   const dateStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
   const floors = [...new Set(rows.map(r => r.floor))].sort((x, y) => x - y);
 
@@ -4397,10 +4397,10 @@ function printBrokerReport(projectId) {
       .br-legend{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 18px}
       .br-leg{display:flex;align-items:center;gap:6px;border:1.5px solid;border-radius:8px;padding:6px 12px;font-weight:700;font-size:13px}
       .br-floor{margin-bottom:14px;page-break-inside:avoid}
-      .br-floor-label{font-weight:800;color:#0f3d2e;border-bottom:2px solid #0f3d2e;padding-bottom:4px;margin-bottom:8px;font-size:14px}
+      .br-floor-label{font-weight:800;color:#0b5563;border-bottom:2px solid #0b5563;padding-bottom:4px;margin-bottom:8px;font-size:14px}
       .br-grid{display:flex;flex-wrap:wrap;gap:6px}
       .br-tile{width:104px;border:1.5px solid;border-right-width:5px;border-radius:8px;padding:6px 8px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-      .br-no{font-weight:900;font-size:15px;color:#1a1814}
+      .br-no{font-weight:900;font-size:15px;color:#16282c}
       .br-meta{font-size:10.5px;color:#555;min-height:14px}
       .br-st{font-size:11px;font-weight:800}
     </style>
