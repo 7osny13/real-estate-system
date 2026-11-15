@@ -44,9 +44,7 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);line-
   -webkit-overflow-scrolling:touch;
   max-width:100%;
 }
-#upcoming-installments-list table{
-  min-width:650px;
-}
+
 html{
   overflow-x:hidden;
 }
@@ -465,36 +463,6 @@ html{
       <div class="stat-card danger"><div class="stat-label">متبقي تحصيله</div><div class="stat-value" id="total-remaining">0</div><div class="stat-sub">ج.م</div></div>
     </div>
 
-    <!-- التنبيهات -->
-    <div class="card">
-      <div class="card-hd"><div class="card-title">🔔 التنبيهات</div></div>
-      <div id="alerts-content"></div>
-    </div>
-
-    <div class="charts-row">
-      <div class="chart-card">
-        <div class="chart-title">💰 الإيرادات مقابل التكاليف</div>
-        <div class="chart-wrap"><canvas id="chart-projects"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title">📋 حالة الأقساط</div>
-        <div class="chart-wrap"><canvas id="chart-installments"></canvas></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-hd"><div class="card-title">المشاريع النشطة</div></div>
-      <div class="projects-grid" id="active-projects-grid">
-        <div class="empty"><div class="empty-icon">🏗️</div><p>لا توجد مشاريع نشطة</p></div>
-      </div>
-    </div>
-
-    <!-- مقارنة المشاريع (لوحة موحّدة) -->
-    <div class="card">
-      <div class="card-hd"><div class="card-title">📊 مقارنة المشاريع</div></div>
-      <div class="chart-wrap" style="height:280px;margin-bottom:1.5rem"><canvas id="chart-projects-comparison"></canvas></div>
-      <div class="projects-grid" id="projects-comparison-grid"></div>
-    </div>
-
     <!-- لوحة الأقساط القادمة -->
     <div class="card">
       <div class="card-hd">
@@ -511,6 +479,29 @@ html{
         </div>
       </div>
       <div id="upcoming-installments-list"></div>
+    </div>
+    <!-- التنبيهات -->
+    <div class="card">
+      <div class="card-hd"><div class="card-title">🔔 التنبيهات</div></div>
+      <div id="alerts-content"></div>
+    </div>
+
+    <!-- مقارنة المشاريع (لوحة موحّدة) -->
+    <div class="card">
+      <div class="card-hd"><div class="card-title">📊 المشاريع</div></div>
+      <div class="chart-wrap" style="height:280px;margin-bottom:1.5rem"><canvas id="chart-projects-comparison"></canvas></div>
+      <div class="projects-grid" id="projects-comparison-grid"></div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-title">💰 الإيرادات مقابل التكاليف</div>
+        <div class="chart-wrap"><canvas id="chart-projects"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">📋 حالة الأقساط</div>
+        <div class="chart-wrap"><canvas id="chart-installments"></canvas></div>
+      </div>
     </div>
   </div>
 

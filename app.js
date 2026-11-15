@@ -895,6 +895,8 @@ function convertOldPayments(sale) {
 }
 
 async function migrateOldPayments() {
+  // لا داعي لطلب إضافي من قاعدة البيانات لو مفيش بيانات بالصيغة القديمة
+  if (!sales.some(s => isOldPaymentFormat(s.payments))) return;
   // اجلب كل sales مباشرة من Supabase عشان نشوف raw payments
   const { data, error } = await DB.supabase.from('sales').select('id, payments, payment_type, sale_date, down_payment');
   if (error) { console.error('Migration fetch error:', error); return; }
@@ -1240,23 +1242,10 @@ function renderUpcomingInstallments() {
   }
 
   container.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:.88rem">
-      <thead>
-        <tr style="background:var(--primary);color:#fff">
-          <th style="padding:.65rem 1rem;text-align:right">العميل</th>
-          <th style="padding:.65rem 1rem;text-align:right">المشروع</th>
-          <th style="padding:.65rem 1rem;text-align:right">القسط</th>
-          <th style="padding:.65rem 1rem;text-align:right">الاستحقاق</th>
-          <th style="padding:.65rem 1rem;text-align:right">المبلغ</th>
-          <th style="padding:.65rem 1rem;text-align:right">الحالة</th>
-          <th style="padding:.65rem 1rem;text-align:right">إجراء</th>
-        </tr>
-      </thead>
+    <table class="ur-table">
+      <thead><tr><th>العميل</th><th>المشروع</th><th>القسط</th><th>الاستحقاق</th><th>المبلغ</th><th>الحالة</th><th>إجراء</th></tr></thead>
       <tbody>
-        ${items.map((item, i) => {
-          const rowBg = item.isOverdue
-            ? (i % 2 === 0 ? '#fff0ee' : '#ffe8e5')
-            : (i % 2 === 0 ? '#fff' : 'var(--bg-subtle)');
+        ${items.map(item => {
           const daysLabel = item.isOverdue
             ? `<span class="badge badge-red">متأخر ${Math.abs(item.daysLeft)} يوم</span>`
             : item.daysLeft === 0
@@ -1265,23 +1254,19 @@ function renderUpcomingInstallments() {
             ? `<span class="badge badge-orange">بعد ${item.daysLeft} أيام</span>`
             : `<span class="badge badge-blue">بعد ${item.daysLeft} يوم</span>`;
           const statusLabel = item.inst.status === 'partial'
-            ? `<span class="badge badge-orange">جزئي<br><small>متبقي: ${formatCurrency(item.inst.remainingAmount)} ج.م</small></span>`
+            ? `<span class="badge badge-orange">جزئي</span>`
             : `<span class="badge badge-red">لم يُدفع</span>`;
 
-          return `<tr style="background:${rowBg};border-bottom:1px solid var(--border)">
-            <td style="padding:.65rem 1rem;font-weight:700">${item.sale.customerName}
-              ${item.sale.notesCrm ? `<div style="font-size:.75rem;color:#7a5c0a;font-weight:400">📌 ${item.sale.notesCrm}</div>` : ''}
-            </td>
-            <td style="padding:.65rem 1rem;color:var(--text-muted)">${item.project?.projectName || '—'}</td>
-            <td style="padding:.65rem 1rem">${item.inst.label || '—'}</td>
-            <td style="padding:.65rem 1rem">${formatDate(item.inst.dueDate)}<br>${daysLabel}</td>
-            <td style="padding:.65rem 1rem;font-weight:700;color:var(--gold)">${formatCurrency(item.inst.remainingAmount || item.inst.totalAmount)} ج.م</td>
-            <td style="padding:.65rem 1rem">${statusLabel}</td>
-            <td style="padding:.65rem 1rem">
-              <button class="btn btn-primary btn-xs" onclick="showSaleInstallments('${item.sale.id}');showView('sales')">
-                📋 فتح
-              </button>
-              ${waButton(item.sale, item.idx)}
+          return `<tr${item.isOverdue ? ' style="background:#fff0ee"' : ''}>
+            <td class="ur-head">${item.sale.customerName}${item.sale.notesCrm ? ` <span style="font-size:.75rem;color:#7a5c0a;font-weight:400">📌 ${item.sale.notesCrm}</span>` : ''}</td>
+            <td data-l="المشروع">${item.project?.projectName || '—'}</td>
+            <td data-l="القسط">${item.inst.label || '—'}</td>
+            <td data-l="الاستحقاق"><span>${formatDate(item.inst.dueDate)} ${daysLabel}</span></td>
+            <td data-l="المبلغ" class="ur-num" style="color:var(--gold)">${formatCurrency(item.inst.remainingAmount || item.inst.totalAmount)} ج.م</td>
+            <td data-l="الحالة">${statusLabel}</td>
+            <td data-l="إجراء"><span style="display:inline-flex;gap:.3rem">
+              <button class="btn btn-primary btn-xs" onclick="showSaleInstallments('${item.sale.id}')">📋 فتح</button>
+              ${waButton(item.sale, item.idx)}</span>
             </td>
           </tr>`;
         }).join('')}
