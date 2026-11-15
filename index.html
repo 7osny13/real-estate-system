@@ -336,6 +336,9 @@ html{
 .u-reserved{background:#fdf6e3;border-color:#c9952a}.u-reserved .u-who{color:#8a6410}
 .u-sold{background:#fce8e6;border-color:#c0392b}.u-sold .u-who{color:#c0392b}
 
+/* فلترة المبيعات */
+.sales-filters{background:var(--bg-card);border-radius:var(--radius-md);padding:1rem 1.25rem;margin-bottom:1.25rem;border:1px solid var(--border);display:flex;gap:.75rem;flex-wrap:wrap;align-items:center}
+
 /* AUTH */
 .auth-screen{position:fixed;inset:0;z-index:5000;background:linear-gradient(160deg,var(--primary),#0a2a20);display:flex;align-items:center;justify-content:center;padding:1rem;overflow-y:auto}
 .auth-screen.hidden{display:none}
@@ -378,6 +381,13 @@ html{
   .modal-title{font-size:1.1rem}
   .report-table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
   .sale-actions .btn{flex:1;justify-content:center}
+  .sales-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.5rem;padding:.9rem}
+  .sales-filters>*{min-width:0 !important;width:100%}
+  .sales-filters #search-input{grid-column:1/-1}
+  .sales-filters .btn{grid-column:1/-1;justify-content:center}
+  .sale-actions>.btn{flex:1 1 40%}
+  .sale-actions .more-menu{flex:1 1 100%}
+  .sale-actions .more-menu summary{display:flex;width:100%;justify-content:center}
   .u-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
   .exp-filters{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
   .exp-filters #exp-search{grid-column:1/-1}
@@ -544,7 +554,7 @@ html{
     </div>
 
     <!-- شريط البحث والفلترة -->
-    <div style="background:var(--bg-card);border-radius:var(--radius-md);padding:1rem 1.25rem;margin-bottom:1.25rem;border:1px solid var(--border);display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
+    <div class="sales-filters">
       <input type="text" id="search-input" class="form-control" placeholder="🔍 ابحث باسم العميل أو رقم الوحدة..."
         oninput="filterSales()" style="flex:1;min-width:200px;padding:.6rem .9rem">
       <select id="filter-project" class="form-control" onchange="filterSales()" style="min-width:150px;padding:.6rem .9rem">

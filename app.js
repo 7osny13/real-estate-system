@@ -2792,7 +2792,9 @@ async function calculateProjectCosts(projectId) {
 }
 
 function formatCurrency(amount) {
-  return new Intl.NumberFormat('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount || 0);
+  // الأرقام الصحيحة تُعرض بدون كسور (١٬٢٠٠٬٠٠٠ بدل ١٬٢٠٠٬٠٠٠٫٠٠) — الكسور تظهر فقط لو موجودة
+  const n = Math.round((amount || 0) * 100) / 100;
+  return new Intl.NumberFormat('ar-EG', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 }).format(n);
 }
 
 function formatDate(dateString) {
