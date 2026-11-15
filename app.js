@@ -94,6 +94,12 @@ const DB = {
     return true;
   },
 
+  async deleteProjectUnits(projectId) {
+    const { error } = await this.supabase.from('units').delete().eq('project_id', projectId);
+    if (error) { console.error(error); showToast('خطأ في حذف الوحدات', 'error'); return false; }
+    return true;
+  },
+
   async deleteUnit(id) {
     const { error } = await this.supabase.from('units').delete().eq('id', id);
     if (error) { console.error(error); showToast('خطأ في حذف الوحدة', 'error'); return false; }
@@ -4060,6 +4066,7 @@ function renderUnitsModal() {
         <span class="u-total">الإجمالي <b>${list.length}</b></span>
       </div>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        ${list.length ? `<button class="btn btn-danger btn-sm" onclick="deleteAllProjectUnits('${projectId}')">🗑️ مسح الكل</button>` : ''}
         <button class="btn btn-gold btn-sm" onclick="openUnitsGenerator('${projectId}')">⚡ توليد وحدات</button>
         <button class="btn btn-primary btn-sm" onclick="openUnitForm(null, '${projectId}')">➕ وحدة</button>
       </div>
@@ -4161,6 +4168,34 @@ async function deleteUnitFromForm() {
     renderUnitsModal();
     renderProjects();
     showToast('تم حذف الوحدة');
+  }
+  hideLoading();
+}
+
+async function deleteAllProjectUnits(projectId) {
+  const project = projects.find(p => p.id === projectId);
+  const list = units.filter(u => u.projectId === projectId);
+  if (!project || list.length === 0) return;
+  const reserved = list.filter(u => getUnitStatus(u) === 'reserved').length;
+  const linked = list.filter(u => u.saleId).length;
+  const ok1 = await confirmDanger({
+    title: `مسح كل وحدات "${project.projectName}"`,
+    lines: [
+      `سيتم حذف <b>${list.length}</b> وحدة من جدول الوحدات.`,
+      reserved ? `منها <b>${reserved}</b> وحدة محجوزة — بيانات الحجز ستُحذف.` : '',
+      linked ? `منها <b>${linked}</b> وحدة مربوطة ببيعة يدوياً — الربط سيُحذف.` : '',
+      'المبيعات والدفعات والمصاريف لا تتأثر.'
+    ].filter(Boolean),
+    requireText: 'حذف',
+    confirmLabel: 'مسح الوحدات'
+  });
+  if (!ok1) return;
+  showLoading();
+  if (await DB.deleteProjectUnits(projectId)) {
+    await loadData();
+    renderUnitsModal();
+    renderProjects();
+    showToast(`تم مسح ${list.length} وحدة`);
   }
   hideLoading();
 }
