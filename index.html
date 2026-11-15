@@ -550,7 +550,10 @@ html{
   <div id="reports-view" class="view">
     <div class="section-hd">
       <div class="section-title">📈 التقارير</div>
-      <button class="btn btn-pdf btn-sm" onclick="printUnifiedReport()">🖨️ طباعة / PDF</button>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button class="btn btn-success btn-sm" onclick="exportUnifiedExcel()">📊 Excel</button>
+        <button class="btn btn-pdf btn-sm" onclick="printUnifiedReport()">🖨️ طباعة / PDF</button>
+      </div>
     </div>
     <div class="ur-filters">
       <select id="ur-project" class="form-control" onchange="renderUnifiedReport()"></select>

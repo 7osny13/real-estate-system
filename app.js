@@ -3573,6 +3573,80 @@ function printUnifiedReport() {
 }
 
 // ============================================================
+// EXCEL EXPORT — نفس بيانات التقرير المعروض (المشروع + الفترة)
+// ============================================================
+const XLSX_URL = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+function loadXlsxLib() {
+  if (window.XLSX) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = XLSX_URL;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('xlsx load failed'));
+    document.head.appendChild(s);
+  });
+}
+
+async function exportUnifiedExcel() {
+  const d = urLast;
+  if (!d) { showToast('افتح التقرير أولاً', 'warning'); return; }
+  showLoading();
+  try {
+    await loadXlsxLib();
+  } catch (e) {
+    hideLoading();
+    showToast('تعذر تحميل مكتبة Excel — تأكد من الاتصال بالإنترنت', 'error');
+    return;
+  }
+  const r2 = v => Math.round((v || 0) * 100) / 100;
+  const t = d.total;
+
+  const summary = [
+    ['التقرير', d.projectLabel], ['الفترة', d.periodLabel], ['تاريخ الإصدار', todayStr()], [],
+    ['الوضع الحالي', ''],
+    ['إجمالي الوحدات', t.units], ['الوحدات المباعة', t.sold], ['الوحدات المتاحة', t.available],
+    ['قيمة العقود', r2(t.contracts)], ['المحصّل', r2(t.collected)], ['المتبقي تحصيله', r2(t.remaining)],
+    ['المتأخر', r2(t.overdue)], ['المصاريف', r2(t.costs)],
+    ['الصافي الفعلي (محصّل − مصاريف)', r2(t.netCash)], ['الصافي المتوقع (عقود − مصاريف)', r2(t.netExpected)], [],
+    [`حركة الفترة — ${d.periodLabel}`, ''],
+    ['تحصيلات الفترة', r2(d.periodCollected)], ['مصاريف الفترة', r2(d.periodCosts)], ['صافي الفترة', r2(d.periodCollected - d.periodCosts)]
+  ];
+
+  const customers = [['العميل', 'الهاتف', 'المشروع', 'نوع الوحدة', 'رقم الوحدة', 'تاريخ البيع', 'السعر', 'المدفوع', 'المتبقي', 'المتأخر', 'آخر دفعة']]
+    .concat(d.customers.map(r => [
+      r.sale.customerName, r.sale.customerPhone || '', r.project?.projectName || '',
+      r.sale.unitType === 'apartment' ? 'شقة' : 'محل', r.sale.unitNumber || '', r.sale.saleDate || '',
+      r2(r.sale.totalPrice), r2(r.paid), r2(Math.max(r.remaining, 0)), r2(r.overdue), r.last || ''
+    ]));
+
+  const collections = [['التاريخ', 'العميل', 'المشروع', 'رقم الوحدة', 'المبلغ', 'ملاحظة']]
+    .concat(d.periodEvents.map(e => [e.date, e.sale.customerName, d.projectName(e.sale.projectId), e.sale.unitNumber || '', r2(e.amount), e.note || '']))
+    .concat([['', '', '', 'الإجمالي', r2(d.periodCollected), '']]);
+
+  const plainCat = e => getCategoryName(e.category, e.customCategory).replace(/^[^؀-ۿa-zA-Z0-9]+/, '');
+  const expensesSheet = [['التاريخ', 'الفئة', 'المشروع', 'المبلغ', 'المستلم', 'ملاحظات']]
+    .concat(d.periodExpenses.map(e => [e.date, plainCat(e), d.projectName(e.projectId), r2(e.amount), e.recipient || '', e.notes || '']))
+    .concat([['', '', 'الإجمالي', r2(d.periodCosts), '', '']]);
+
+  const wb = XLSX.utils.book_new();
+  const add = (name, rows, widths) => {
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = widths.map(w => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, ws, name);
+  };
+  add('الملخص', summary, [34, 22]);
+  add('العملاء', customers, [26, 15, 20, 10, 11, 12, 14, 14, 14, 14, 12]);
+  add('التحصيلات', collections, [12, 26, 20, 11, 14, 30]);
+  add('المصاريف', expensesSheet, [12, 18, 20, 14, 20, 34]);
+  wb.Workbook = { Views: [{ RTL: true }] };
+
+  const safe = s => String(s).replace(/[\\/:*?"<>|]/g, '-');
+  XLSX.writeFile(wb, `تقرير ${safe(d.projectLabel)} - ${safe(d.periodLabel)}.xlsx`);
+  hideLoading();
+  showToast('تم تنزيل ملف Excel');
+}
+
+// ============================================================
 // FILE UPLOAD UI
 // ============================================================
 
