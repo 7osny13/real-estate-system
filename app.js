@@ -497,6 +497,7 @@ function unitToRow(u) {
     reserved_phone: reserved ? (u.reservedPhone || '') : '',
     reserved_amount: reserved ? (parseFloat(u.reservedAmount) || 0) : 0,
     reserved_date: reserved && u.reservedDate ? u.reservedDate : null,
+    sale_id: u.saleId || null,
     notes: u.notes || ''
   };
 }
@@ -3890,12 +3891,27 @@ let unitsFilter = '';
 
 const normUnitNo = s => String(s || '').trim().toLowerCase().replace(/\s+/g, '');
 
-// البيعة المرتبطة بالوحدة: بالربط المباشر، أو بتطابق رقم الوحدة داخل نفس المشروع
+// مفتاح الوحدة داخل المشروع: الدور + الرقم (الرقم ممكن يتكرر في كل دور)
+const unitKey = u => `${parseInt(u.floor) || 0}|${normUnitNo(u.unitNumber)}`;
+
+// البيعة المرتبطة بالوحدة:
+// 1) الربط المباشر (sale_id)
+// 2) تطابق رقم الوحدة داخل المشروع — فقط لو الرقم غير مكرر في أدوار أخرى والبيعة غير مربوطة بوحدة ثانية
 function getUnitSale(unit) {
   if (unit.saleId) { const s = sales.find(x => x.id === unit.saleId); if (s) return s; }
   const key = normUnitNo(unit.unitNumber);
   if (!key) return null;
-  return sales.find(s => s.projectId === unit.projectId && normUnitNo(s.unitNumber) === key) || null;
+  const sameNo = units.filter(u => u.projectId === unit.projectId && normUnitNo(u.unitNumber) === key);
+  if (sameNo.length > 1) return null;
+  return sales.find(s => s.projectId === unit.projectId && normUnitNo(s.unitNumber) === key &&
+    !units.some(u => u.saleId === s.id && u.id !== unit.id)) || null;
+}
+
+// بيعات المشروع التي لم ترتبط بأي وحدة بعد
+function getUnlinkedSales(projectId) {
+  const list = units.filter(u => u.projectId === projectId);
+  const taken = new Set(list.map(u => getUnitSale(u)?.id).filter(Boolean));
+  return sales.filter(s => s.projectId === projectId && !taken.has(s.id));
 }
 
 // الحالة الفعلية: لو فيه بيعة على الوحدة فهي مباعة مهما كانت الحالة المسجلة
@@ -3934,6 +3950,9 @@ function ensureUnitsModals() {
             <div class="form-group"><label class="form-label">الاتجاه / الواجهة</label><input type="text" class="form-control" name="direction" placeholder="اختياري"></div>
           </div>
           <div id="unit-sold-info"></div>
+          <div class="form-group" id="unit-sale-group" style="margin-top:1rem"><label class="form-label">البيعة المرتبطة</label>
+            <select class="form-control" name="saleId" onchange="onUnitSaleLinkChange()"></select>
+          </div>
           <div class="form-group" id="unit-status-group" style="margin:1rem 0"><label class="form-label">الحالة</label>
             <select class="form-control" name="status" onchange="toggleUnitReserveFields()">
               <option value="available">🟢 متاحة</option><option value="reserved">🟡 محجوزة</option><option value="sold">🔴 مباعة</option>
@@ -3964,14 +3983,16 @@ function ensureUnitsModals() {
           <select class="form-control" id="ug-scheme" onchange="updateUnitsGenPreview()">
             <option value="floor">دور + رقم — 101، 102 … 201، 202</option>
             <option value="letters">دور + رقم + حرف النموذج — 101A، 201A … 101B</option>
-            <option value="seq">أرقام متسلسلة — 1، 2، 3 …</option>
+            <option value="repeat">نفس الأرقام في كل دور — 1، 2، 3 ثم 1، 2، 3</option>
+            <option value="seq">أرقام متسلسلة على كل الأدوار — 1، 2، 3 … 16</option>
           </select>
         </div>
         <div class="form-grid">
           <div class="form-group"><label class="form-label">عدد الأدوار</label><input type="number" class="form-control" id="ug-floors" min="1" max="60" value="4" inputmode="numeric" oninput="updateUnitsGenPreview()"></div>
           <div class="form-group"><label class="form-label">يبدأ من الدور</label><input type="number" class="form-control" id="ug-first" min="0" max="60" value="1" inputmode="numeric" oninput="updateUnitsGenPreview()"></div>
-          <div class="form-group"><label class="form-label" id="ug-per-label">عدد الشقق في الدور</label><input type="number" class="form-control" id="ug-per" min="1" max="50" value="4" inputmode="numeric" oninput="updateUnitsGenPreview()"></div>
+          <div class="form-group" id="ug-per-group"><label class="form-label">عدد الشقق في الدور</label><input type="number" class="form-control" id="ug-per" min="1" max="50" value="4" inputmode="numeric" oninput="updateUnitsGenPreview()"></div>
           <div class="form-group" id="ug-letters-group" style="display:none"><label class="form-label">حروف النماذج</label><input type="text" class="form-control" id="ug-letters" value="A, B" placeholder="A, B" oninput="updateUnitsGenPreview()"></div>
+          <div class="form-group" id="ug-letter-counts-group" style="display:none;grid-column:1/-1"><label class="form-label">عدد الشقق في الدور لكل نموذج</label><div id="ug-letter-counts" style="display:flex;gap:.5rem;flex-wrap:wrap"></div></div>
           <div class="form-group"><label class="form-label">النوع</label><select class="form-control" id="ug-type"><option value="apartment">🏠 شقة</option><option value="shop">🏪 محل</option></select></div>
           <div class="form-group"><label class="form-label">المساحة (اختياري)</label><input type="number" class="form-control" id="ug-area" min="0" step="0.01" inputmode="decimal" placeholder="نفس المساحة للكل"></div>
         </div>
@@ -4005,8 +4026,7 @@ function renderUnitsModal() {
   list.forEach(u => counts[getUnitStatus(u)]++);
 
   // بيعات في المشروع ليس لها وحدة مسجلة بنفس الرقم
-  const unitKeys = new Set(list.map(u => normUnitNo(u.unitNumber)));
-  const orphanSales = sales.filter(s => s.projectId === projectId && !list.some(u => u.saleId === s.id) && !unitKeys.has(normUnitNo(s.unitNumber)));
+  const orphanSales = list.length ? getUnlinkedSales(projectId) : [];
 
   const chip = (key, color) => `<button type="button" class="u-chip ${unitsFilter === key ? 'on' : ''}" onclick="setUnitsFilter('${key}')"><span class="u-dot" style="background:${color}"></span>${UNIT_STATUS[key].label} <b>${counts[key]}</b></button>`;
 
@@ -4044,7 +4064,7 @@ function renderUnitsModal() {
         <button class="btn btn-primary btn-sm" onclick="openUnitForm(null, '${projectId}')">➕ وحدة</button>
       </div>
     </div>
-    ${orphanSales.length ? `<div class="info-box">💡 ${orphanSales.length} بيعة في هذا المشروع رقم وحدتها غير موجود في الجدول: ${orphanSales.map(s => `<b>${s.unitNumber || 'بدون رقم'}</b> (${shortName(s.customerName)})`).join('، ')}</div>` : ''}
+    ${orphanSales.length ? `<div class="info-box">💡 ${orphanSales.length} بيعة في هذا المشروع غير مربوطة بوحدة: ${orphanSales.map(s => `<b>${s.unitNumber || 'بدون رقم'}</b> (${shortName(s.customerName)})`).join('، ')}.<br>افتح الوحدة المباعة واختر البيعة من "البيعة المرتبطة".</div>` : ''}
     ${grid}`;
 }
 
@@ -4071,6 +4091,14 @@ function openUnitForm(unitId, projectId) {
     form.reservedAmount.value = u.reservedAmount || ''; form.reservedDate.value = u.reservedDate || '';
     form.notes.value = u.notes;
   }
+  // قائمة البيعات المتاحة للربط: غير المربوطة + بيعة هذه الوحدة إن وجدت
+  const pid = u?.projectId || projectId;
+  const options = getUnlinkedSales(pid).concat(sale ? [sale] : []);
+  form.saleId.innerHTML = '<option value="">— بدون —</option>' + options.map(s =>
+    `<option value="${s.id}">${s.customerName}${s.unitNumber ? ` — وحدة ${s.unitNumber}` : ''}</option>`).join('');
+  form.saleId.value = sale ? sale.id : '';
+  document.getElementById('unit-sale-group').style.display = options.length ? '' : 'none';
+
   // وحدة عليها بيعة: الحالة "مباعة" تلقائياً ولا تُعدّل من هنا
   document.getElementById('unit-status-group').style.display = sale ? 'none' : '';
   document.getElementById('unit-sold-info').innerHTML = sale
@@ -4082,15 +4110,23 @@ function openUnitForm(unitId, projectId) {
   document.getElementById('unit-form-modal').classList.add('active');
 }
 
+function onUnitSaleLinkChange() {
+  const form = document.getElementById('unit-form');
+  const linked = !!form.saleId.value;
+  document.getElementById('unit-status-group').style.display = linked ? 'none' : '';
+  if (linked) document.getElementById('unit-reserve-fields').style.display = 'none';
+  else toggleUnitReserveFields();
+}
+
 async function saveUnit(event) {
   event.preventDefault();
   const fd = new FormData(event.target);
   const id = fd.get('unitId');
   const unit = Object.fromEntries(fd.entries());
   const existing = id ? units.find(u => u.id === id) : null;
-  if (existing && getUnitSale(existing)) unit.status = existing.status === 'reserved' ? 'available' : existing.status;
-  const dup = units.find(u => u.projectId === unit.projectId && u.id !== id && normUnitNo(u.unitNumber) === normUnitNo(unit.unitNumber));
-  if (dup) { showToast(`رقم الوحدة ${unit.unitNumber} موجود بالفعل في هذا المشروع`, 'warning'); return; }
+  if (unit.saleId) unit.status = 'available';   // المباعة تُحسب من البيعة المرتبطة، لا من الحالة المسجلة
+  const dup = units.find(u => u.projectId === unit.projectId && u.id !== id && unitKey(u) === unitKey(unit));
+  if (dup) { showToast(`الوحدة ${unit.unitNumber} موجودة بالفعل في ${floorLabel(parseInt(unit.floor) || 0)}`, 'warning'); return; }
   if (unit.status === 'reserved' && !String(unit.reservedBy).trim()) { showToast('اكتب اسم الحاجز', 'warning'); return; }
 
   showLoading();
@@ -4137,6 +4173,22 @@ function openUnitsGenerator(projectId) {
   document.getElementById('units-gen-modal').classList.add('active');
 }
 
+function getGenLetters() {
+  return [...new Set(document.getElementById('ug-letters').value.split(/[\s,،]+/).map(s => s.trim().toUpperCase()).filter(Boolean))];
+}
+
+// خانة عدد لكل حرف نموذج (A=8، B=7 ...) مع الحفاظ على ما كتبه المستخدم
+function renderGenLetterCounts() {
+  const box = document.getElementById('ug-letter-counts');
+  const old = {};
+  box.querySelectorAll('input').forEach(i => { old[i.dataset.letter] = i.value; });
+  const def = document.getElementById('ug-per').value || 4;
+  box.innerHTML = getGenLetters().map(L => `
+    <label style="display:flex;align-items:center;gap:.35rem;font-weight:700;color:var(--primary)">${L}
+      <input type="number" class="form-control" data-letter="${L}" min="1" max="50" value="${old[L] || def}" inputmode="numeric" style="width:76px;padding:.5rem" oninput="updateUnitsGenPreview(true)">
+    </label>`).join('');
+}
+
 function buildGeneratedUnits() {
   const projectId = document.getElementById('ug-project').value;
   const scheme = document.getElementById('ug-scheme').value;
@@ -4145,40 +4197,50 @@ function buildGeneratedUnits() {
   const per = Math.min(parseInt(document.getElementById('ug-per').value) || 0, 50);
   const unitType = document.getElementById('ug-type').value;
   const area = parseFloat(document.getElementById('ug-area').value) || 0;
-  const letters = document.getElementById('ug-letters').value.split(/[\s,،]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
   const out = [];
-  if (floors < 1 || per < 1) return out;
+  if (floors < 1) return out;
   const mk = (unitNumber, floor, model = '') => out.push({ projectId, unitNumber: String(unitNumber), unitType, floor, area, model, status: 'available' });
   const pad = n => String(n).padStart(2, '0');
 
+  if (scheme === 'letters') {
+    const counts = {};
+    document.querySelectorAll('#ug-letter-counts input').forEach(i => { counts[i.dataset.letter] = Math.min(parseInt(i.value) || 0, 50); });
+    for (const L of getGenLetters()) for (let i = 1; i <= (counts[L] || 0); i++) for (let f = 0; f < floors; f++) mk(`${first + f}${pad(i)}${L}`, first + f, L);
+    return out;
+  }
+  if (per < 1) return out;
   if (scheme === 'seq') {
     let n = 1;
     for (let f = 0; f < floors; f++) for (let i = 0; i < per; i++) mk(n++, first + f);
-  } else if (scheme === 'floor') {
-    for (let f = 0; f < floors; f++) for (let i = 1; i <= per; i++) mk(`${first + f}${pad(i)}`, first + f);
+  } else if (scheme === 'repeat') {
+    for (let f = 0; f < floors; f++) for (let i = 1; i <= per; i++) mk(i, first + f);
   } else {
-    for (const L of (letters.length ? letters : ['A'])) for (let i = 1; i <= per; i++) for (let f = 0; f < floors; f++) mk(`${first + f}${pad(i)}${L}`, first + f, L);
+    for (let f = 0; f < floors; f++) for (let i = 1; i <= per; i++) mk(`${first + f}${pad(i)}`, first + f);
   }
   return out;
 }
 
-function updateUnitsGenPreview() {
+function updateUnitsGenPreview(keepCounts = false) {
   const scheme = document.getElementById('ug-scheme').value;
-  document.getElementById('ug-letters-group').style.display = scheme === 'letters' ? '' : 'none';
-  document.getElementById('ug-per-label').textContent = scheme === 'letters' ? 'عدد الشقق في الدور (لكل حرف)' : 'عدد الشقق في الدور';
+  const isLetters = scheme === 'letters';
+  document.getElementById('ug-letters-group').style.display = isLetters ? '' : 'none';
+  document.getElementById('ug-letter-counts-group').style.display = isLetters ? '' : 'none';
+  document.getElementById('ug-per-group').style.display = isLetters ? 'none' : '';
+  if (isLetters && !keepCounts) renderGenLetterCounts();
   const gen = buildGeneratedUnits();
   const projectId = document.getElementById('ug-project').value;
-  const have = new Set(units.filter(u => u.projectId === projectId).map(u => normUnitNo(u.unitNumber)));
-  const fresh = gen.filter(u => !have.has(normUnitNo(u.unitNumber)));
-  const sample = gen.slice(0, 10).map(u => u.unitNumber).join('، ');
+  const have = new Set(units.filter(u => u.projectId === projectId).map(unitKey));
+  const fresh = gen.filter(u => !have.has(unitKey(u)));
+  const show = u => scheme === 'repeat' ? `${u.unitNumber} (د${u.floor})` : u.unitNumber;
+  const sample = gen.slice(0, 10).map(show).join('، ');
   document.getElementById('ug-preview').innerHTML = gen.length === 0 ? 'اكتب عدد الأدوار وعدد الشقق'
-    : `سيتم إضافة <b>${fresh.length}</b> وحدة${gen.length !== fresh.length ? ` (${gen.length - fresh.length} موجودة بالفعل وسيتم تخطيها)` : ''}.<br>الأرقام: ${sample}${gen.length > 10 ? ` … ${gen[gen.length - 1].unitNumber}` : ''}`;
+    : `سيتم إضافة <b>${fresh.length}</b> وحدة${gen.length !== fresh.length ? ` (${gen.length - fresh.length} موجودة بالفعل وسيتم تخطيها)` : ''}.<br>الأرقام: ${sample}${gen.length > 10 ? ` … ${show(gen[gen.length - 1])}` : ''}`;
 }
 
 async function saveGeneratedUnits() {
   const projectId = document.getElementById('ug-project').value;
-  const have = new Set(units.filter(u => u.projectId === projectId).map(u => normUnitNo(u.unitNumber)));
-  const fresh = buildGeneratedUnits().filter(u => !have.has(normUnitNo(u.unitNumber)));
+  const have = new Set(units.filter(u => u.projectId === projectId).map(unitKey));
+  const fresh = buildGeneratedUnits().filter(u => !have.has(unitKey(u)));
   if (fresh.length === 0) { showToast('لا توجد وحدات جديدة للإضافة', 'warning'); return; }
   showLoading();
   const added = await DB.addUnits(fresh);
