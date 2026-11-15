@@ -903,8 +903,7 @@ function showView(viewName, triggerEl) {
   if (viewName === 'dashboard') { updateDashboard(); checkOverdueInstallments(); }
   if (viewName === 'projects') renderProjects();
   if (viewName === 'sales') renderSales();
-  if (viewName === 'reports') generateReport();
-  if (viewName === 'monthly-report') renderMonthlyQuickReport();
+  if (viewName === 'reports') renderUnifiedReport();
 }
 
 // ============================================================
@@ -3165,6 +3164,291 @@ async function savePaymentMode(saleId) {
     showToast('تم تحديث نظام الدفع');
   }
   hideLoading();
+}
+
+// ============================================================
+// UNIFIED REPORT — تقرير واحد: مشروع + فترة
+// ============================================================
+const UR_MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+let urLast = null;
+
+function populateUnifiedReportFilters() {
+  const projSel = document.getElementById('ur-project');
+  const monthSel = document.getElementById('ur-month');
+  const yearSel = document.getElementById('ur-year');
+  if (!projSel || !monthSel || !yearSel) return;
+
+  const curProj = projSel.value;
+  projSel.innerHTML = '<option value="">كل المشاريع</option>' +
+    projects.map(p => `<option value="${p.id}">${p.projectName}</option>`).join('');
+  if (curProj && projects.some(p => p.id === curProj)) projSel.value = curProj;
+
+  if (monthSel.options.length === 0) {
+    const now = new Date();
+    monthSel.innerHTML = UR_MONTHS.map((m, i) => `<option value="${String(i + 1).padStart(2, '0')}">${m}</option>`).join('');
+    monthSel.value = String(now.getMonth() + 1).padStart(2, '0');
+    const years = new Set([now.getFullYear()]);
+    sales.forEach(s => { if (s.saleDate) years.add(parseInt(s.saleDate.slice(0, 4))); });
+    yearSel.innerHTML = [...years].filter(Boolean).sort((x, y) => y - x).map(y => `<option value="${y}">${y}</option>`).join('');
+    yearSel.value = String(now.getFullYear());
+  }
+}
+
+// كل دفعة فعلية (على قسط أو من جدول payments) كسطر مستقل
+function getSalePaymentEvents(sale) {
+  const events = [];
+  (sale.payments || []).forEach(inst => (inst.partialPayments || []).forEach(pp => {
+    if (pp.date) events.push({ date: String(pp.date).slice(0, 10), amount: parseFloat(pp.amount) || 0, note: pp.note || inst.label || '', sale });
+  }));
+  getFreePaymentsForSale(sale.id).forEach(p => events.push({ date: String(p.date).slice(0, 10), amount: p.amount, note: p.notes || '', sale }));
+  return events;
+}
+
+async function buildUnifiedReportData() {
+  const projectId = document.getElementById('ur-project').value;
+  const period = document.getElementById('ur-period').value;
+  const month = document.getElementById('ur-month').value;
+  const year = document.getElementById('ur-year').value;
+  const prefix = period === 'month' ? `${year}-${month}` : period === 'year' ? `${year}` : '';
+  const inPeriod = d => !prefix || (d && String(d).startsWith(prefix));
+  const periodLabel = period === 'month' ? `${UR_MONTHS[parseInt(month) - 1]} ${year}` : period === 'year' ? `سنة ${year}` : 'من البداية';
+
+  const selProjects = projectId ? projects.filter(p => p.id === projectId) : projects;
+  const ids = new Set(selProjects.map(p => p.id));
+  const selSales = sales.filter(s => ids.has(s.projectId));
+
+  const { data: expRows, error } = await DB.supabase.from('expenses').select('*').order('date', { ascending: false });
+  if (error) { console.error(error); showToast('خطأ في تحميل المصاريف', 'error'); }
+  const expenses = (expRows || []).map(mapExpense).filter(e => ids.has(e.projectId));
+
+  const sum = (arr, f) => arr.reduce((s, x) => s + f(x), 0);
+  const statFor = (projList) => {
+    const pid = new Set(projList.map(p => p.id));
+    const ss = selSales.filter(s => pid.has(s.projectId));
+    const units = sum(projList, p => (p.apartmentsCount || 0) + (p.shopsCount || 0));
+    const contracts = sum(ss, s => s.totalPrice);
+    const collected = sum(ss, s => getCombinedTotalPaid(s));
+    const costs = sum(expenses.filter(e => pid.has(e.projectId)), e => e.amount);
+    return {
+      units, sold: ss.length, available: Math.max(units - ss.length, 0),
+      contracts, collected, remaining: contracts - collected,
+      overdue: sum(ss, s => s.ledger?.overdueAmount || 0),
+      costs, netCash: collected - costs, netExpected: contracts - costs
+    };
+  };
+
+  const events = selSales.flatMap(getSalePaymentEvents);
+  const periodEvents = events.filter(e => inPeriod(e.date)).sort((x, y) => (x.date < y.date ? 1 : -1));
+  const periodExpenses = expenses.filter(e => inPeriod(e.date));
+  const newSales = selSales.filter(s => inPeriod(s.saleDate));
+
+  const byCat = {};
+  periodExpenses.forEach(e => {
+    const k = getCategoryName(e.category, e.customCategory);
+    byCat[k] = byCat[k] || { total: 0, count: 0 };
+    byCat[k].total += e.amount; byCat[k].count++;
+  });
+
+  const customers = selSales.map(s => {
+    const paid = getCombinedTotalPaid(s);
+    return { sale: s, project: projects.find(p => p.id === s.projectId), paid, remaining: s.totalPrice - paid, overdue: s.ledger?.overdueAmount || 0, last: getLastPaymentDate(s) };
+  }).sort((x, y) => (y.overdue - x.overdue) || (y.remaining - x.remaining));
+
+  return {
+    periodLabel, isAllTime: !prefix,
+    projectLabel: projectId ? selProjects[0]?.projectName || '' : 'كل المشاريع',
+    single: !!projectId, total: statFor(selProjects),
+    perProject: selProjects.map(p => ({ project: p, ...statFor([p]) })),
+    customers, periodEvents, periodExpenses, newSales, byCat,
+    periodCollected: sum(periodEvents, e => e.amount),
+    periodCosts: sum(periodExpenses, e => e.amount),
+    newSalesValue: sum(newSales, s => s.totalPrice),
+    projectName: id => projects.find(p => p.id === id)?.projectName || '—'
+  };
+}
+
+async function renderUnifiedReport() {
+  const el = document.getElementById('ur-content');
+  if (!el) return;
+  populateUnifiedReportFilters();
+  const period = document.getElementById('ur-period').value;
+  document.getElementById('ur-month').style.display = period === 'month' ? '' : 'none';
+  document.getElementById('ur-year').style.display = period === 'all' ? 'none' : '';
+
+  const d = await buildUnifiedReportData();
+  urLast = d;
+  const c = v => formatCurrency(v);
+  const t = d.total;
+  const card = (label, value, cls = '', sub = 'ج.م') => `<div class="stat-card ${cls}"><div class="stat-label">${label}</div><div class="stat-value">${value}</div><div class="stat-sub">${sub}</div></div>`;
+
+  const periodNet = d.periodCollected - d.periodCosts;
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-hd"><div class="card-title">🏢 الوضع الحالي — ${d.projectLabel}</div></div>
+      <div class="ur-grid">
+        ${card('الوحدات', `${t.sold} / ${t.units}`, '', `مباعة — متاح ${t.available}`)}
+        ${card('قيمة العقود', c(t.contracts), 'info')}
+        ${card('المحصّل', c(t.collected), 'gold')}
+        ${card('المتبقي تحصيله', c(t.remaining), t.remaining > 0.01 ? 'danger' : '')}
+        ${card('المتأخر', c(t.overdue), t.overdue > 0.01 ? 'danger' : '', 'أقساط فات موعدها')}
+        ${card('المصاريف', c(t.costs))}
+        ${card('الصافي الفعلي', c(t.netCash), t.netCash >= 0 ? 'gold' : 'danger', 'المحصّل − المصاريف')}
+        ${card('الصافي المتوقع', c(t.netExpected), t.netExpected >= 0 ? 'info' : 'danger', 'قيمة العقود − المصاريف')}
+      </div>
+    </div>
+
+    ${d.isAllTime ? '' : `
+    <div class="card">
+      <div class="card-hd"><div class="card-title">📅 حركة الفترة — ${d.periodLabel}</div></div>
+      <div class="ur-grid">
+        ${card('تحصيلات الفترة', c(d.periodCollected), 'gold', `${d.periodEvents.length} دفعة`)}
+        ${card('مصاريف الفترة', c(d.periodCosts), 'danger', `${d.periodExpenses.length} بند`)}
+        ${card('صافي الفترة', c(periodNet), periodNet >= 0 ? 'gold' : 'danger', 'تحصيلات − مصاريف')}
+        ${card('مبيعات جديدة', d.newSales.length, 'info', `بقيمة ${c(d.newSalesValue)} ج.م`)}
+      </div>
+    </div>`}
+
+    ${d.single || d.perProject.length < 2 ? '' : `
+    <div class="card">
+      <div class="card-hd"><div class="card-title">📊 المشاريع</div></div>
+      <table class="ur-table">
+        <thead><tr><th>المشروع</th><th>مباع / إجمالي</th><th>قيمة العقود</th><th>المحصّل</th><th>المتبقي</th><th>المتأخر</th><th>المصاريف</th><th>الصافي الفعلي</th></tr></thead>
+        <tbody>${d.perProject.map(r => `
+          <tr class="click" onclick="document.getElementById('ur-project').value='${r.project.id}';renderUnifiedReport()">
+            <td class="ur-head">${r.project.projectName}</td>
+            <td data-l="مباع / إجمالي">${r.sold} / ${r.units}</td>
+            <td data-l="قيمة العقود" class="ur-num">${c(r.contracts)}</td>
+            <td data-l="المحصّل" class="ur-num" style="color:var(--gold)">${c(r.collected)}</td>
+            <td data-l="المتبقي" class="ur-num">${c(r.remaining)}</td>
+            <td data-l="المتأخر" class="ur-num" style="color:${r.overdue > 0.01 ? 'var(--danger)' : 'inherit'}">${c(r.overdue)}</td>
+            <td data-l="المصاريف" class="ur-num">${c(r.costs)}</td>
+            <td data-l="الصافي الفعلي" class="ur-num" style="color:${r.netCash >= 0 ? 'var(--success)' : 'var(--danger)'}">${c(r.netCash)}</td>
+          </tr>`).join('')}</tbody>
+      </table>
+    </div>`}
+
+    <div class="card">
+      <div class="card-hd"><div class="card-title">👥 العملاء (${d.customers.length})</div></div>
+      ${d.customers.length === 0 ? `<div class="empty"><p>لا توجد مبيعات</p></div>` : `
+      <table class="ur-table">
+        <thead><tr><th>العميل</th>${d.single ? '' : '<th>المشروع</th>'}<th>الوحدة</th><th>السعر</th><th>المدفوع</th><th>المتبقي</th><th>المتأخر</th><th>آخر دفعة</th></tr></thead>
+        <tbody>${d.customers.map(r => `
+          <tr class="click" onclick="showSaleInstallments('${r.sale.id}')">
+            <td class="ur-head">${r.sale.customerName}</td>
+            ${d.single ? '' : `<td data-l="المشروع">${r.project?.projectName || '—'}</td>`}
+            <td data-l="الوحدة">${r.sale.unitType === 'apartment' ? 'شقة' : 'محل'} ${r.sale.unitNumber || ''}</td>
+            <td data-l="السعر" class="ur-num">${c(r.sale.totalPrice)}</td>
+            <td data-l="المدفوع" class="ur-num" style="color:var(--gold)">${c(r.paid)}</td>
+            <td data-l="المتبقي" class="ur-num">${r.remaining > 0.01 ? c(r.remaining) : '✅ مسدد'}</td>
+            <td data-l="المتأخر" class="ur-num" style="color:${r.overdue > 0.01 ? 'var(--danger)' : 'inherit'}">${r.overdue > 0.01 ? c(r.overdue) : '—'}</td>
+            <td data-l="آخر دفعة">${r.last ? formatDate(r.last) : '—'}</td>
+          </tr>`).join('')}</tbody>
+      </table>`}
+    </div>
+
+    <div class="card">
+      <div class="card-hd"><div class="card-title">💰 التحصيلات — ${d.periodLabel} (${d.periodEvents.length})</div></div>
+      ${d.periodEvents.length === 0 ? `<div class="empty"><p>لا توجد تحصيلات في هذه الفترة</p></div>` : `
+      <table class="ur-table">
+        <thead><tr><th>العميل</th><th>التاريخ</th>${d.single ? '' : '<th>المشروع</th>'}<th>المبلغ</th><th>ملاحظة</th></tr></thead>
+        <tbody>${d.periodEvents.map(e => `
+          <tr class="click" onclick="showSaleInstallments('${e.sale.id}')">
+            <td class="ur-head">${e.sale.customerName}</td>
+            <td data-l="التاريخ">${formatDate(e.date)}</td>
+            ${d.single ? '' : `<td data-l="المشروع">${d.projectName(e.sale.projectId)}</td>`}
+            <td data-l="المبلغ" class="ur-num" style="color:var(--success)">${c(e.amount)}</td>
+            <td data-l="ملاحظة">${e.note || ''}</td>
+          </tr>`).join('')}</tbody>
+      </table>
+      <div class="ur-total"><span>إجمالي التحصيلات</span><span class="ur-num" style="color:var(--success)">${c(d.periodCollected)} ج.م</span></div>`}
+    </div>
+
+    <div class="card">
+      <div class="card-hd"><div class="card-title">💸 المصاريف — ${d.periodLabel} (${d.periodExpenses.length})</div></div>
+      ${d.periodExpenses.length === 0 ? `<div class="empty"><p>لا توجد مصاريف في هذه الفترة</p></div>` : `
+      <div class="expense-summary">
+        ${Object.entries(d.byCat).sort((x, y) => y[1].total - x[1].total).map(([k, v]) => `
+          <div class="expense-category"><span class="category-name">${k}</span><span><span class="category-count">(${v.count} بند)</span><span class="category-amount">${c(v.total)} ج.م</span></span></div>`).join('')}
+      </div>
+      <table class="ur-table">
+        <thead><tr><th>البند</th><th>التاريخ</th>${d.single ? '' : '<th>المشروع</th>'}<th>المبلغ</th><th>المستلم</th><th>ملاحظات</th></tr></thead>
+        <tbody>${d.periodExpenses.map(e => `
+          <tr>
+            <td class="ur-head">${getCategoryName(e.category, e.customCategory)}</td>
+            <td data-l="التاريخ">${formatDate(e.date)}</td>
+            ${d.single ? '' : `<td data-l="المشروع">${d.projectName(e.projectId)}</td>`}
+            <td data-l="المبلغ" class="ur-num" style="color:var(--danger)">${c(e.amount)}</td>
+            <td data-l="المستلم">${e.recipient || ''}</td>
+            <td data-l="ملاحظات">${e.notes || ''}</td>
+          </tr>`).join('')}</tbody>
+      </table>
+      <div class="ur-total"><span>إجمالي المصاريف</span><span class="ur-num" style="color:var(--danger)">${c(d.periodCosts)} ج.م</span></div>`}
+    </div>`;
+}
+
+function printUnifiedReport() {
+  const d = urLast;
+  if (!d) { showToast('افتح التقرير أولاً', 'warning'); return; }
+  const c = v => formatCurrency(v);
+  const t = d.total;
+  const box = (l, v, cls) => `<div class="summary-box ${cls}"><div class="lbl">${l}</div><div class="val">${v}</div></div>`;
+  const dateStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
+  const periodNet = d.periodCollected - d.periodCosts;
+
+  const html = `
+    <div class="pdf-header">
+      <h1>تقرير ${d.projectLabel}</h1>
+      <p>الفترة: ${d.periodLabel}</p>
+      <div class="pdf-meta" style="color:#fff;opacity:.8"><span>تاريخ الإصدار: ${dateStr}</span></div>
+    </div>
+
+    <div class="section-title">الوضع الحالي</div>
+    <div class="summary-boxes">
+      ${box('الوحدات (مباع / إجمالي)', `${t.sold} / ${t.units}`, 'green')}
+      ${box('قيمة العقود', c(t.contracts), 'gold')}
+      ${box('المحصّل', c(t.collected), 'green')}
+      ${box('المتبقي تحصيله', c(t.remaining), 'red')}
+      ${box('المتأخر', c(t.overdue), 'red')}
+      ${box('المصاريف', c(t.costs), 'red')}
+      ${box('الصافي الفعلي (محصّل − مصاريف)', c(t.netCash), t.netCash >= 0 ? 'green' : 'red')}
+      ${box('الصافي المتوقع (عقود − مصاريف)', c(t.netExpected), t.netExpected >= 0 ? 'gold' : 'red')}
+    </div>
+
+    ${d.isAllTime ? '' : `
+    <div class="section-title">حركة الفترة — ${d.periodLabel}</div>
+    <div class="summary-boxes">
+      ${box('تحصيلات الفترة', c(d.periodCollected), 'green')}
+      ${box('مصاريف الفترة', c(d.periodCosts), 'red')}
+      ${box('صافي الفترة', c(periodNet), periodNet >= 0 ? 'green' : 'red')}
+    </div>`}
+
+    ${d.single || d.perProject.length < 2 ? '' : `
+    <div class="section-title">المشاريع</div>
+    <table><thead><tr><th>المشروع</th><th>مباع/إجمالي</th><th>قيمة العقود</th><th>المحصّل</th><th>المتبقي</th><th>المتأخر</th><th>المصاريف</th><th>الصافي الفعلي</th></tr></thead>
+    <tbody>${d.perProject.map(r => `<tr><td style="font-weight:700">${r.project.projectName}</td><td>${r.sold} / ${r.units}</td><td>${c(r.contracts)}</td><td>${c(r.collected)}</td><td>${c(r.remaining)}</td><td>${c(r.overdue)}</td><td>${c(r.costs)}</td><td style="font-weight:700">${c(r.netCash)}</td></tr>`).join('')}</tbody></table>`}
+
+    <div class="section-title">العملاء (${d.customers.length})</div>
+    <table><thead><tr><th>#</th><th>العميل</th>${d.single ? '' : '<th>المشروع</th>'}<th>الوحدة</th><th>السعر</th><th>المدفوع</th><th>المتبقي</th><th>المتأخر</th><th>آخر دفعة</th></tr></thead>
+    <tbody>${d.customers.map((r, i) => `<tr class="${r.overdue > 0.01 ? 'overdue' : ''}"><td>${i + 1}</td><td style="font-weight:700">${r.sale.customerName}</td>${d.single ? '' : `<td>${r.project?.projectName || '—'}</td>`}<td>${r.sale.unitType === 'apartment' ? 'شقة' : 'محل'} ${r.sale.unitNumber || ''}</td><td>${c(r.sale.totalPrice)}</td><td>${c(r.paid)}</td><td>${c(Math.max(r.remaining, 0))}</td><td>${r.overdue > 0.01 ? c(r.overdue) : '—'}</td><td>${r.last ? formatDate(r.last) : '—'}</td></tr>`).join('')}</tbody></table>
+
+    <div class="section-title">التحصيلات — ${d.periodLabel} (${d.periodEvents.length})</div>
+    ${d.periodEvents.length === 0 ? '<p>لا توجد تحصيلات في هذه الفترة</p>' : `
+    <table><thead><tr><th>التاريخ</th><th>العميل</th>${d.single ? '' : '<th>المشروع</th>'}<th>المبلغ</th><th>ملاحظة</th></tr></thead>
+    <tbody>${d.periodEvents.map(e => `<tr><td>${formatDate(e.date)}</td><td style="font-weight:700">${e.sale.customerName}</td>${d.single ? '' : `<td>${d.projectName(e.sale.projectId)}</td>`}<td>${c(e.amount)}</td><td>${e.note || ''}</td></tr>`).join('')}
+    <tr><td colspan="${d.single ? 2 : 3}" style="font-weight:700">الإجمالي</td><td colspan="2" style="font-weight:700">${c(d.periodCollected)} ج.م</td></tr></tbody></table>`}
+
+    <div class="section-title">المصاريف — ${d.periodLabel} (${d.periodExpenses.length})</div>
+    ${d.periodExpenses.length === 0 ? '<p>لا توجد مصاريف في هذه الفترة</p>' : `
+    <table><thead><tr><th>الفئة</th><th>عدد البنود</th><th>الإجمالي</th></tr></thead>
+    <tbody>${Object.entries(d.byCat).sort((x, y) => y[1].total - x[1].total).map(([k, v]) => `<tr><td style="font-weight:700">${k}</td><td>${v.count}</td><td>${c(v.total)} ج.م</td></tr>`).join('')}</tbody></table>
+    <table><thead><tr><th>التاريخ</th><th>البند</th>${d.single ? '' : '<th>المشروع</th>'}<th>المبلغ</th><th>المستلم</th><th>ملاحظات</th></tr></thead>
+    <tbody>${d.periodExpenses.map(e => `<tr><td>${formatDate(e.date)}</td><td>${getCategoryName(e.category, e.customCategory)}</td>${d.single ? '' : `<td>${d.projectName(e.projectId)}</td>`}<td>${c(e.amount)}</td><td>${e.recipient || ''}</td><td>${e.notes || ''}</td></tr>`).join('')}
+    <tr><td colspan="${d.single ? 2 : 3}" style="font-weight:700">الإجمالي</td><td colspan="3" style="font-weight:700">${c(d.periodCosts)} ج.م</td></tr></tbody></table>`}
+
+    <div class="footer"><span>نظام إدارة المشاريع العقارية</span><span>${dateStr}</span></div>`;
+
+  openPrintWindow(html, `تقرير ${d.projectLabel} - ${d.periodLabel}`);
 }
 
 // ============================================================

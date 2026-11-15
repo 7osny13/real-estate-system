@@ -60,7 +60,7 @@ html{
 .nav-btn{position:relative;background:transparent;border:none;color:rgba(255,255,255,.7);padding:.55rem 1.1rem;border-radius:var(--radius-sm);cursor:pointer;font-family:'Cairo',sans-serif;font-size:.92rem;font-weight:600;transition:all .2s;white-space:nowrap}
 .nav-btn:hover{background:rgba(255,255,255,.1);color:#fff}
 .nav-btn.active{background:var(--gold);color:var(--primary);box-shadow:0 2px 12px rgba(201,152,42,.4)}
-.badge-dot{position:absolute;top:4px;left:4px;background:#e74c3c;color:white;border-radius:10px;min-width:18px;height:18px;font-size:.65rem;display:none;align-items:center;justify-content:center;font-weight:700;padding:0 4px}
+.badge-dot{position:absolute;top:-5px;left:-5px;background:#e74c3c;color:white;border-radius:10px;min-width:18px;height:18px;font-size:.65rem;display:none;align-items:center;justify-content:center;font-weight:700;padding:0 4px}
 
 /* GLOBAL SEARCH */
 .global-search{position:relative;flex:1;min-width:220px;max-width:380px}
@@ -292,6 +292,21 @@ html{
 .pay-date{font-size:.8rem;color:var(--text-muted);margin-right:.4rem}
 .pay-where{font-size:.78rem;color:var(--text-muted);margin-top:.15rem}
 
+/* التقرير الموحّد */
+.ur-filters{display:grid;grid-template-columns:2fr 1.2fr 1fr 1fr;gap:.6rem;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:.9rem;margin-bottom:1.25rem}
+.ur-filters .form-control{padding:.55rem .7rem;min-width:0}
+.ur-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.7rem;margin-bottom:.5rem}
+.ur-grid .stat-card{padding:.9rem 1.1rem}
+.ur-grid .stat-value{font-size:1.3rem}
+.ur-table{width:100%;border-collapse:collapse;font-size:.86rem}
+.ur-table th{background:var(--primary);color:#fff;padding:.6rem .8rem;text-align:right;font-weight:600;font-size:.8rem;white-space:nowrap}
+.ur-table td{padding:.6rem .8rem;border-bottom:1px solid var(--border)}
+.ur-table tr.click{cursor:pointer}
+.ur-table tr.click:hover td{background:var(--bg-subtle)}
+.ur-table tfoot td{font-weight:700;background:var(--bg-subtle)}
+.ur-num{font-family:'Tajawal',sans-serif;font-weight:700;white-space:nowrap}
+.ur-total{display:flex;justify-content:space-between;align-items:center;background:var(--bg-subtle);border-radius:var(--radius-sm);padding:.7rem 1rem;margin-top:.6rem;font-weight:700}
+
 /* AUTH */
 .auth-screen{position:fixed;inset:0;z-index:5000;background:linear-gradient(160deg,var(--primary),#0a2a20);display:flex;align-items:center;justify-content:center;padding:1rem;overflow-y:auto}
 .auth-screen.hidden{display:none}
@@ -334,6 +349,18 @@ html{
   .modal-title{font-size:1.1rem}
   .report-table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
   .sale-actions .btn{flex:1;justify-content:center}
+  .ur-filters{grid-template-columns:1fr 1fr}
+  .ur-filters #ur-project{grid-column:1/-1}
+  .ur-grid{grid-template-columns:1fr 1fr}
+  .ur-grid .stat-value{font-size:1.05rem}
+  .ur-table thead{display:none}
+  .ur-table,.ur-table tbody,.ur-table tfoot,.ur-table tr,.ur-table td{display:block;width:100%}
+  .ur-table tr{background:var(--bg-subtle);border-radius:var(--radius-sm);margin-bottom:.5rem;padding:.55rem .8rem}
+  .ur-table td{display:flex;justify-content:space-between;gap:.75rem;border:none;padding:.15rem 0;text-align:left}
+  .ur-table td::before{content:attr(data-l);color:var(--text-muted);font-size:.78rem;font-weight:600;text-align:right;white-space:nowrap}
+  .ur-table td.ur-head{font-weight:700;color:var(--primary);font-size:.95rem;justify-content:flex-start;text-align:right;margin-bottom:.2rem}
+  .ur-table td.ur-head::before{content:none}
+  .ur-table td:empty{display:none}
   .ledger-summary{grid-template-columns:1fr 1fr}
   .add-pay-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
   .add-pay-grid input[type=text],.add-pay-grid .btn{grid-column:1/-1}
@@ -398,7 +425,6 @@ html{
         <span class="badge-dot overdue-badge">0</span>
       </button>
       <button class="nav-btn" data-view="reports" onclick="showView('reports')">📈 التقارير</button>
-      <button class="nav-btn" data-view="monthly-report" onclick="showView('monthly-report')">📅 التقرير الشهري</button>
     </nav>
     <button class="btn btn-sm btn-logout" onclick="authLogout()" title="تسجيل الخروج">🚪<span class="logout-txt"> خروج</span></button>
   </div>
@@ -516,77 +542,19 @@ html{
   <div id="reports-view" class="view">
     <div class="section-hd">
       <div class="section-title">📈 التقارير</div>
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-        <select id="report-month-filter" class="form-control" onchange="renderMonthlyReport()" style="padding:.4rem .75rem;font-size:.85rem;width:auto"></select>
-        <select id="report-year-filter" class="form-control" onchange="renderMonthlyReport()" style="padding:.4rem .75rem;font-size:.85rem;width:auto"></select>
-        <button class="btn btn-ghost btn-sm" onclick="generateReport()">🔄 تحديث</button>
-        <button class="btn btn-pdf btn-sm" onclick="exportMonthlyPDF()">📄 PDF شهري</button>
-      </div>
+      <button class="btn btn-pdf btn-sm" onclick="printUnifiedReport()">🖨️ طباعة / PDF</button>
     </div>
-
-    <!-- التقرير الشهري -->
-    <div class="card">
-      <div class="card-hd"><div class="card-title">📅 ملخص الشهر</div></div>
-      <div id="monthly-summary-stats" class="stats-row"></div>
-
-      <div class="charts-row" style="grid-template-columns:1.4fr 1fr">
-        <div class="chart-card">
-          <div class="chart-title">💸 المصروفات حسب الفئة</div>
-          <div id="monthly-expense-table"></div>
-        </div>
-        <div class="chart-card">
-          <div class="chart-title">🥧 توزيع المصروفات</div>
-          <div class="chart-wrap"><canvas id="chart-expense-breakdown"></canvas></div>
-        </div>
-      </div>
-
-      <div class="report-section-title" style="margin-top:1rem">💰 سجل التحصيلات هذا الشهر</div>
-      <div id="monthly-collections-table"></div>
+    <div class="ur-filters">
+      <select id="ur-project" class="form-control" onchange="renderUnifiedReport()"></select>
+      <select id="ur-period" class="form-control" onchange="renderUnifiedReport()">
+        <option value="month">شهر محدد</option>
+        <option value="year">سنة كاملة</option>
+        <option value="all">من البداية</option>
+      </select>
+      <select id="ur-month" class="form-control" onchange="renderUnifiedReport()"></select>
+      <select id="ur-year" class="form-control" onchange="renderUnifiedReport()"></select>
     </div>
-
-    <div id="reports-content"></div>
-  </div>
-
-  <!-- MONTHLY QUICK REPORT -->
-  <div id="monthly-report-view" class="view">
-    <div class="section-hd">
-      <div class="section-title">📅 التقرير الشهري</div>
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-        <select id="mqr-month" class="form-control" onchange="renderMonthlyQuickReport()" style="padding:.4rem .75rem;font-size:.85rem;width:auto"></select>
-        <select id="mqr-year" class="form-control" onchange="renderMonthlyQuickReport()" style="padding:.4rem .75rem;font-size:.85rem;width:auto"></select>
-      </div>
-    </div>
-
-    <!-- التحصيلات -->
-    <div class="card">
-      <div class="card-hd"><div class="card-title">💰 التحصيلات</div></div>
-      <div class="stat-card gold" style="max-width:280px;margin-bottom:1.25rem">
-        <div class="stat-label">إجمالي الدفعات المحصّلة هذا الشهر</div>
-        <div class="stat-value" id="mqr-collections-total">0</div>
-        <div class="stat-sub">ج.م</div>
-      </div>
-      <div id="mqr-collections-list"></div>
-    </div>
-
-    <!-- المصاريف -->
-    <div class="card">
-      <div class="card-hd"><div class="card-title">💸 المصاريف</div></div>
-      <div class="stat-card danger" style="max-width:280px;margin-bottom:1.25rem">
-        <div class="stat-label">إجمالي المصاريف هذا الشهر</div>
-        <div class="stat-value" id="mqr-expenses-total">0</div>
-        <div class="stat-sub">ج.م</div>
-      </div>
-      <div class="report-section-title">تفصيل حسب الفئة</div>
-      <div id="mqr-expenses-by-category" style="margin-bottom:1.5rem"></div>
-      <div class="report-section-title">قائمة المصاريف</div>
-      <div id="mqr-expenses-list"></div>
-    </div>
-
-    <!-- الملخص -->
-    <div class="card">
-      <div class="card-hd"><div class="card-title">📊 الملخص</div></div>
-      <div class="stats-row" id="mqr-summary-stats"></div>
-    </div>
+    <div id="ur-content"></div>
   </div>
 </main>
 
@@ -596,7 +564,6 @@ html{
   <button class="bnav-btn" data-view="projects" onclick="showView('projects')"><span class="bnav-ico">🏢</span>المشاريع</button>
   <button class="bnav-btn" data-view="sales" onclick="showView('sales')"><span class="bnav-ico">💰</span>المبيعات<span class="badge-dot overdue-badge">0</span></button>
   <button class="bnav-btn" data-view="reports" onclick="showView('reports')"><span class="bnav-ico">📈</span>التقارير</button>
-  <button class="bnav-btn" data-view="monthly-report" onclick="showView('monthly-report')"><span class="bnav-ico">📅</span>الشهري</button>
 </nav>
 
 <!-- MODALS -->
