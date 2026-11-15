@@ -614,6 +614,54 @@ function waButton(sale, instIdx, cls = 'btn-xs') {
 }
 
 // ============================================================
+// CONFIRM DANGER — تأكيد قبل الحذف (مع كتابة نص للتأكيد عند وجود بيانات)
+// ============================================================
+function getSalePaymentCount(sale) {
+  let n = getFreePaymentsForSale(sale.id).length;
+  (sale.payments || []).forEach(inst => { n += (inst.partialPayments || []).length; });
+  return n;
+}
+
+function confirmDanger({ title, lines = [], requireText = '', confirmLabel = 'حذف' }) {
+  return new Promise(resolve => {
+    document.getElementById('confirm-danger')?.remove();
+    const wrap = document.createElement('div');
+    wrap.id = 'confirm-danger';
+    wrap.className = 'modal active';
+    wrap.style.zIndex = '3000';
+    wrap.innerHTML = `
+      <div class="modal-box confirm-box">
+        <div class="confirm-title">⚠️ ${title}</div>
+        ${lines.map(l => `<div class="confirm-line">${l}</div>`).join('')}
+        ${requireText ? `
+          <div class="confirm-line" style="margin-top:.9rem">للتأكيد اكتب: <b class="confirm-word"></b></div>
+          <input type="text" class="form-control" id="confirm-danger-input" autocomplete="off" style="width:100%;margin-top:.4rem">` : ''}
+        <div style="display:flex;gap:.6rem;margin-top:1.25rem">
+          <button class="btn btn-danger" id="confirm-danger-ok" style="flex:1;justify-content:center" ${requireText ? 'disabled' : ''}>${confirmLabel}</button>
+          <button class="btn btn-ghost" id="confirm-danger-cancel" style="flex:1;justify-content:center">إلغاء</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    const okBtn = wrap.querySelector('#confirm-danger-ok');
+    const input = wrap.querySelector('#confirm-danger-input');
+    if (requireText) {
+      wrap.querySelector('.confirm-word').textContent = requireText;
+      const norm = s => String(s).trim().replace(/\s+/g, ' ');
+      input.addEventListener('input', () => {
+        const match = norm(input.value) === norm(requireText);
+        okBtn.disabled = !match;
+        okBtn.style.opacity = match ? '1' : '.45';
+      });
+      okBtn.style.opacity = '.45';
+    }
+    const done = v => { wrap.remove(); resolve(v); };
+    okBtn.onclick = () => { if (!okBtn.disabled) done(true); };
+    wrap.querySelector('#confirm-danger-cancel').onclick = () => done(false);
+    wrap.addEventListener('click', e => { if (e.target === wrap) done(false); });
+  });
+}
+
+// ============================================================
 // GLOBAL STATE
 // ============================================================
 let projects = [];
@@ -1899,7 +1947,22 @@ async function updateProject(event) {
 async function deleteProject(projectId) {
   const project = projects.find(p => p.id === projectId);
   if (!project) return;
-  if (!confirm(`هل أنت متأكد من حذف "${project.projectName}"؟\nسيتم حذف جميع المصروفات والمبيعات المرتبطة.`)) return;
+  const pSales = sales.filter(s => s.projectId === projectId);
+  const pExpenses = await DB.getProjectExpenses(projectId);
+  const collected = pSales.reduce((s, sale) => s + getCombinedTotalPaid(sale), 0);
+  const expTotal = pExpenses.reduce((s, e) => s + e.amount, 0);
+  const hasData = pSales.length > 0 || pExpenses.length > 0;
+  const ok1 = await confirmDanger({
+    title: `حذف مشروع "${project.projectName}"`,
+    lines: hasData ? [
+      `سيتم حذف <b>${pSales.length}</b> عملية بيع (محصّل منها ${formatCurrency(collected)} ج.م) مع كل دفعاتها وأقساطها.`,
+      `سيتم حذف <b>${pExpenses.length}</b> مصروف بإجمالي ${formatCurrency(expTotal)} ج.م.`,
+      'لا يمكن التراجع عن الحذف.'
+    ] : ['المشروع لا يحتوي على مبيعات أو مصروفات.'],
+    requireText: hasData ? project.projectName : '',
+    confirmLabel: 'حذف المشروع'
+  });
+  if (!ok1) return;
   showLoading();
   const ok = await DB.deleteProject(projectId);
   if (ok) {
@@ -2009,7 +2072,19 @@ async function updateSale(event) {
 async function deleteSale(saleId) {
   const sale = sales.find(s => s.id === saleId);
   if (!sale) return;
-  if (!confirm(`هل أنت متأكد من حذف عملية البيع للعميل "${sale.customerName}"؟`)) return;
+  const payCount = getSalePaymentCount(sale);
+  const paid = getCombinedTotalPaid(sale);
+  const ok1 = await confirmDanger({
+    title: `حذف بيعة "${sale.customerName}"`,
+    lines: payCount > 0 ? [
+      `على هذه البيعة <b>${payCount}</b> دفعة مسجلة بإجمالي <b>${formatCurrency(paid)} ج.م</b>.`,
+      `سيتم حذف جدول الأقساط (${(sale.payments || []).length}) وكل الدفعات والملفات المرتبطة.`,
+      'لا يمكن التراجع عن الحذف.'
+    ] : ['لا توجد دفعات مسجلة على هذه البيعة.'],
+    requireText: payCount > 0 ? 'حذف' : '',
+    confirmLabel: 'حذف البيعة'
+  });
+  if (!ok1) return;
   showLoading();
   const ok = await DB.deleteSale(saleId);
   if (ok) {
