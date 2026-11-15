@@ -570,6 +570,50 @@ function addMonthsStr(dateStr, months) {
 }
 
 // ============================================================
+// WHATSAPP — تذكير بالقسط (يفتح واتساب برسالة جاهزة، والإرسال يدوي)
+// ============================================================
+// رقم مصري → صيغة دولية بدون + (مثال: 01012345678 → 201012345678)
+function waPhone(phone) {
+  let d = String(phone || '').replace(/[^\d]/g, '');
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.length === 11 && d.startsWith('01')) return '2' + d;
+  if (d.length === 10 && d.startsWith('1')) return '20' + d;
+  if (d.length >= 11 && d.startsWith('20')) return d;
+  return d.length >= 10 ? d : null;
+}
+
+// الاسم الثنائي: أول اسمين، مع اعتبار "عبد الله" و"أبو بكر" وأمثالها اسماً واحداً
+function shortName(fullName) {
+  const joiners = ['عبد', 'أبو', 'ابو', 'أم', 'ام', 'بن', 'ابن', 'آل', 'ال'];
+  const words = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+  const names = [];
+  for (let i = 0; i < words.length && names.length < 2; i++) {
+    if (joiners.includes(words[i]) && words[i + 1]) { names.push(words[i] + ' ' + words[i + 1]); i++; }
+    else names.push(words[i]);
+  }
+  return names.join(' ');
+}
+
+function waReminderText(sale, inst) {
+  const project = projects.find(p => p.id === sale.projectId);
+  const amount = inst.remainingAmount || inst.totalAmount || 0;
+  const amountStr = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: Number.isInteger(amount) ? 0 : 2 }).format(amount);
+  const unit = sale.unitNumber ? ` ${sale.unitType === 'shop' ? 'لمحل' : 'لوحدة'} ${sale.unitNumber}` : '';
+  const proj = project?.projectName ? ` بمشروع ${project.projectName}` : '';
+  const label = (inst.label || '').trim();
+  const what = !label ? 'القسط' : label.includes('قسط') ? label : `قسط ${label}`;
+  return `السلام عليكم أ/ ${shortName(sale.customerName)}، نذكّر حضرتك بموعد ${what}${unit}${proj}، المبلغ المستحق ${amountStr} ج.م بتاريخ ${formatDate(inst.dueDate)}. شكرًا لتعاونكم.`.replace(/\s+/g, ' ');
+}
+
+function waButton(sale, instIdx, cls = 'btn-xs') {
+  const inst = (sale.payments || [])[instIdx];
+  if (!inst) return '';
+  const phone = waPhone(sale.customerPhone);
+  if (!phone) return `<button type="button" class="btn btn-wa ${cls}" style="opacity:.5" onclick="showToast('لا يوجد رقم هاتف صحيح لهذا العميل', 'warning')">واتساب</button>`;
+  return `<a class="btn btn-wa ${cls}" target="_blank" rel="noopener" href="https://wa.me/${phone}?text=${encodeURIComponent(waReminderText(sale, inst))}">واتساب</a>`;
+}
+
+// ============================================================
 // GLOBAL STATE
 // ============================================================
 let projects = [];
@@ -1156,6 +1200,7 @@ function renderUpcomingInstallments() {
               <button class="btn btn-primary btn-xs" onclick="showSaleInstallments('${item.sale.id}');showView('sales')">
                 📋 فتح
               </button>
+              ${waButton(item.sale, item.idx)}
             </td>
           </tr>`;
         }).join('')}
@@ -1538,6 +1583,7 @@ function showSaleInstallments(saleId, focusAdd = false) {
         </div>
         ${inst.status === 'partial' ? `<div class="inst-progress">مدفوع ${formatCurrency(inst.paidAmount)} — <b style="color:var(--danger)">متبقي ${formatCurrency(inst.remainingAmount)}</b></div>` : ''}
         <div class="inst-files">
+          ${isOverdue || isDueSoon ? waButton(sale, idx) : ''}
           <label class="inst-upload">📤 إيصال${(inst.files||[]).length ? ` (${inst.files.length})` : ''}
             <input type="file" accept="image/*,.pdf" style="display:none" onchange="uploadInstallmentFile(this, '${saleId}', ${idx})">
           </label>
