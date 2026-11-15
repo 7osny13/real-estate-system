@@ -618,8 +618,8 @@ html{
       </div>
       <div class="form-section">🏢 الوحدات</div>
       <div class="form-grid">
-        <div class="form-group"><label class="form-label">عدد الشقق *</label><input type="number" class="form-control" name="apartmentsCount" required min="0" value="0"></div>
-        <div class="form-group"><label class="form-label">عدد المحلات</label><input type="number" class="form-control" name="shopsCount" value="0" min="0"></div>
+        <div class="form-group"><label class="form-label">عدد الشقق *</label><input type="number" class="form-control" name="apartmentsCount" required min="0" placeholder="0" inputmode="numeric"></div>
+        <div class="form-group"><label class="form-label">عدد المحلات</label><input type="number" class="form-control" name="shopsCount" min="0" placeholder="0" inputmode="numeric"></div>
       </div>
       <div class="info-box">💡 يمكنك إضافة المصروفات من تفاصيل المشروع</div>
       <div style="display:flex;gap:.75rem;margin-top:1.5rem">
@@ -765,7 +765,7 @@ html{
       </div>
       <div id="installment-fields" style="display:none">
         <div class="form-grid">
-          <div class="form-group"><label class="form-label">المقدم (ج.م)</label><input type="number" class="form-control" name="downPayment" min="0" step="0.01" value="0" oninput="updateInstallmentsSummary()"></div>
+          <div class="form-group"><label class="form-label">المقدم (ج.م)</label><input type="number" class="form-control" name="downPayment" min="0" step="0.01" placeholder="0" inputmode="decimal" oninput="updateInstallmentsSummary()"></div>
         </div>
         <div class="gen-box">
           <div class="ledger-title" style="margin:0 0 .6rem">⚡ توليد الأقساط تلقائياً</div>
