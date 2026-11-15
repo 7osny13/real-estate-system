@@ -1467,7 +1467,7 @@ function showSaleInstallments(saleId) {
             <div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg-main);padding:0.4rem 0.6rem;border-radius:8px;margin-bottom:0.3rem;font-size:0.85rem">
               <span>${f.type === 'pdf' ? '📄' : '🖼️'} ${f.name}</span>
               <div style="display:flex;gap:0.3rem">
-                <a href="${f.url}" target="_blank" class="btn btn-xs btn-secondary">👁️</a>
+                <button type="button" class="btn btn-xs btn-secondary" onclick="openStoredFile('${f.path}')">👁️</button>
                 <button class="btn btn-xs btn-danger" onclick="deleteInstallmentFile('${saleId}', ${idx}, '${f.path}')">🗑️</button>
               </div>
             </div>`).join('') : ''}
@@ -3153,6 +3153,22 @@ async function savePaymentMode(saleId) {
 // FILE UPLOAD UI
 // ============================================================
 
+// فتح ملف مخزّن برابط مؤقت (صالح 5 دقائق) — يعمل للمسجّلين فقط
+// النافذة تُفتح أولاً قبل الانتظار حتى لا يحجبها متصفح الموبايل
+async function openStoredFile(path) {
+  const win = window.open('', '_blank');
+  if (win) win.document.write('<p style="font-family:sans-serif;text-align:center;margin-top:3rem">جاري فتح الملف...</p>');
+  const { data, error } = await DB.supabase.storage.from(DB.BUCKET).createSignedUrl(path, 300);
+  if (error || !data?.signedUrl) {
+    console.error('Signed URL error:', error);
+    if (win) win.close();
+    showToast('تعذر فتح الملف', 'error');
+    return;
+  }
+  if (win) win.location.href = data.signedUrl;
+  else location.href = data.signedUrl;
+}
+
 // ── رفع ملف عقد على عملية البيع ──────────────────────────
 function openSaleFilesModal(saleId) {
   const sale = sales.find(s => s.id === saleId);
@@ -3184,7 +3200,7 @@ function renderSaleFilesList(sale) {
         </div>
       </div>
       <div style="display:flex;gap:0.5rem">
-        <a href="${f.url}" target="_blank" class="btn btn-secondary btn-xs">👁️ عرض</a>
+        <button type="button" class="btn btn-secondary btn-xs" onclick="openStoredFile('${f.path}')">👁️ عرض</button>
         <button class="btn btn-danger btn-xs" onclick="deleteSaleFile('${sale.id}', '${f.path}')">🗑️</button>
       </div>
     </div>`).join('');
