@@ -4097,7 +4097,9 @@ function renderUnitsModal() {
         <span class="u-total">الإجمالي <b>${list.length}</b></span>
       </div>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-        ${list.length ? `<button class="btn btn-danger btn-sm" onclick="deleteAllProjectUnits('${projectId}')">🗑️ مسح الكل</button>` : ''}
+        ${list.length ? `<button class="btn btn-pdf btn-sm" onclick="printBrokerReport('${projectId}')">📤 تقرير السماسرة</button>
+        <button class="btn btn-wa btn-sm" onclick="copyAvailableUnitsText('${projectId}')">📋 نسخ المتاح</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteAllProjectUnits('${projectId}')">🗑️ مسح الكل</button>` : ''}
         <button class="btn btn-gold btn-sm" onclick="openUnitsGenerator('${projectId}')">⚡ توليد وحدات</button>
         <button class="btn btn-primary btn-sm" onclick="openUnitForm(null, '${projectId}')">➕ وحدة</button>
       </div>
@@ -4365,6 +4367,90 @@ async function saveGeneratedUnits() {
     showToast(`تمت إضافة ${added.length} وحدة`);
   }
   hideLoading();
+}
+
+// ============================================================
+// BROKER REPORT — تقرير الوحدات للسماسرة
+// وحدات المشروع وحالتها فقط: بدون أسعار، بدون أسماء عملاء أو حاجزين، بدون مبيعات
+// ============================================================
+function brokerUnitRows(projectId) {
+  return sortUnits(units.filter(u => u.projectId === projectId)).map(u => ({
+    number: u.unitNumber, floor: u.floor, model: u.model, area: u.area, direction: u.direction,
+    type: u.unitType, status: getUnitStatus(u)
+  }));
+}
+
+function printBrokerReport(projectId) {
+  const project = projects.find(p => p.id === projectId);
+  const rows = brokerUnitRows(projectId);
+  if (!project || rows.length === 0) { showToast('لا توجد وحدات لهذا المشروع', 'warning'); return; }
+  const counts = { available: 0, reserved: 0, sold: 0 };
+  rows.forEach(r => counts[r.status]++);
+  const colors = { available: ['#eef8f2', '#1e7e4a'], reserved: ['#fdf6e3', '#b07d12'], sold: ['#fce8e6', '#c0392b'] };
+  const dateStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
+  const floors = [...new Set(rows.map(r => r.floor))].sort((x, y) => x - y);
+
+  const html = `
+    <style>
+      .br-legend{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 18px}
+      .br-leg{display:flex;align-items:center;gap:6px;border:1.5px solid;border-radius:8px;padding:6px 12px;font-weight:700;font-size:13px}
+      .br-floor{margin-bottom:14px;page-break-inside:avoid}
+      .br-floor-label{font-weight:800;color:#0f3d2e;border-bottom:2px solid #0f3d2e;padding-bottom:4px;margin-bottom:8px;font-size:14px}
+      .br-grid{display:flex;flex-wrap:wrap;gap:6px}
+      .br-tile{width:104px;border:1.5px solid;border-right-width:5px;border-radius:8px;padding:6px 8px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .br-no{font-weight:900;font-size:15px;color:#1a1814}
+      .br-meta{font-size:10.5px;color:#555;min-height:14px}
+      .br-st{font-size:11px;font-weight:800}
+    </style>
+    <div class="pdf-header">
+      <h1>${project.projectName}</h1>
+      <p>بيان الوحدات${project.location ? ` — ${project.location}` : ''}</p>
+      <div class="pdf-meta" style="color:#fff;opacity:.85"><span>بتاريخ: ${dateStr}</span></div>
+    </div>
+    <div class="br-legend">
+      ${['available', 'reserved', 'sold'].map(k => `<div class="br-leg" style="background:${colors[k][0]};border-color:${colors[k][1]};color:${colors[k][1]}">${UNIT_STATUS[k].label}: ${counts[k]}</div>`).join('')}
+      <div class="br-leg" style="border-color:#999;color:#444">الإجمالي: ${rows.length}</div>
+    </div>
+    ${floors.map(f => `
+      <div class="br-floor">
+        <div class="br-floor-label">${floorLabel(f)}</div>
+        <div class="br-grid">
+          ${rows.filter(r => r.floor === f).map(r => `
+            <div class="br-tile" style="background:${colors[r.status][0]};border-color:${colors[r.status][1]}">
+              <div class="br-no">${r.type === 'shop' ? 'محل ' : ''}${r.number}</div>
+              <div class="br-meta">${[r.model ? `نموذج ${r.model}` : '', r.area ? `${r.area} م²` : ''].filter(Boolean).join(' · ')}</div>
+              <div class="br-st" style="color:${colors[r.status][1]}">${UNIT_STATUS[r.status].label}</div>
+            </div>`).join('')}
+        </div>
+      </div>`).join('')}
+    <div class="section-title">الوحدات المتاحة (${counts.available})</div>
+    ${counts.available === 0 ? '<p>لا توجد وحدات متاحة حالياً</p>' : `
+    <table><thead><tr><th>الوحدة</th><th>النوع</th><th>الدور</th><th>النموذج</th><th>المساحة</th><th>الاتجاه</th></tr></thead>
+    <tbody>${rows.filter(r => r.status === 'available').map(r => `<tr><td style="font-weight:700">${r.number}</td><td>${r.type === 'shop' ? 'محل' : 'شقة'}</td><td>${floorLabel(r.floor)}</td><td>${r.model || '—'}</td><td>${r.area ? `${r.area} م²` : '—'}</td><td>${r.direction || '—'}</td></tr>`).join('')}</tbody></table>`}
+    <div class="footer"><span>${project.projectName}</span><span>${dateStr}</span></div>`;
+
+  openPrintWindow(html, `بيان وحدات ${project.projectName}`);
+}
+
+// نص جاهز للصق في واتساب: الوحدات المتاحة فقط، مجمّعة بالدور
+async function copyAvailableUnitsText(projectId) {
+  const project = projects.find(p => p.id === projectId);
+  const rows = brokerUnitRows(projectId).filter(r => r.status === 'available');
+  if (!project) return;
+  const dateStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
+  const floors = [...new Set(rows.map(r => r.floor))].sort((x, y) => x - y);
+  const text = rows.length === 0
+    ? `${project.projectName} — لا توجد وحدات متاحة حالياً (${dateStr})`
+    : [`*${project.projectName}* — الوحدات المتاحة (${rows.length})`, `بتاريخ ${dateStr}`, '']
+        .concat(floors.map(f => `*${floorLabel(f)}:* ` + rows.filter(r => r.floor === f)
+          .map(r => `${r.type === 'shop' ? 'محل ' : ''}${r.number}${r.area ? ` (${r.area} م²)` : ''}`).join('، ')))
+        .join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('تم نسخ قائمة الوحدات المتاحة — الصقها في واتساب');
+  } catch (e) {
+    prompt('انسخ النص:', text);
+  }
 }
 
 // ============================================================
