@@ -263,6 +263,35 @@ html{
 /* شريط التنقل السفلي (موبايل) */
 .bottom-nav{display:none}
 
+/* شاشة حساب العميل الموحّدة */
+.ledger-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:.6rem;margin-bottom:1rem}
+.ledger-summary .summary-value{font-size:1.15rem}
+.ledger-title{font-family:'Tajawal',sans-serif;font-size:1rem;font-weight:700;color:var(--primary);margin:1.4rem 0 .7rem}
+.add-pay-box,.gen-box{background:var(--bg-subtle);border:1.5px solid var(--border);border-radius:var(--radius-md);padding:1rem;margin-bottom:1rem}
+.add-pay-grid{display:grid;grid-template-columns:1fr 1fr 1.4fr auto;gap:.5rem}
+.add-pay-grid>*{min-width:0;width:100%}
+.add-pay-grid .form-control{background:#fff;padding:.6rem .75rem}
+.chips{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.6rem}
+.chip{background:#fff;border:1.5px solid var(--border);border-radius:20px;padding:.25rem .75rem;font-family:'Cairo',sans-serif;font-size:.78rem;font-weight:700;color:var(--primary);cursor:pointer}
+.chip:hover{border-color:var(--primary-light)}
+.inst-row{border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:.75rem .9rem;margin-bottom:.5rem;background:#fff}
+.inst-row.overdue{border-color:var(--danger);background:#fff8f7}
+.inst-row.paid{background:var(--bg-subtle)}
+.inst-row-main{display:flex;justify-content:space-between;align-items:flex-start;gap:.75rem}
+.inst-label{font-weight:700;color:var(--primary)}
+.inst-date{font-size:.82rem;color:var(--text-muted);display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
+.inst-amount{font-family:'Tajawal',sans-serif;font-weight:700;color:var(--gold);font-size:1.05rem;white-space:nowrap}
+.inst-progress{font-size:.82rem;color:var(--text-muted);margin-top:.4rem}
+.inst-files{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;margin-top:.5rem}
+.inst-upload{font-size:.75rem;font-weight:700;color:var(--text-muted);background:var(--bg-subtle);border:1px dashed var(--border);border-radius:6px;padding:.15rem .5rem;cursor:pointer}
+.file-pill{display:inline-flex;align-items:center;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;font-size:.75rem;overflow:hidden;max-width:100%}
+.file-pill button{background:none;border:none;font-family:'Cairo',sans-serif;font-size:.75rem;padding:.15rem .45rem;cursor:pointer;color:var(--info);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-pill button.x{color:var(--danger);font-weight:700;border-right:1px solid var(--border)}
+.pay-row{display:flex;justify-content:space-between;align-items:center;gap:.75rem;padding:.65rem .9rem;margin-bottom:.4rem;background:var(--bg-subtle);border-radius:var(--radius-sm);border-right:3px solid var(--success)}
+.pay-amount{font-family:'Tajawal',sans-serif;font-weight:700;color:var(--success);font-size:1.02rem}
+.pay-date{font-size:.8rem;color:var(--text-muted);margin-right:.4rem}
+.pay-where{font-size:.78rem;color:var(--text-muted);margin-top:.15rem}
+
 /* AUTH */
 .auth-screen{position:fixed;inset:0;z-index:5000;background:linear-gradient(160deg,var(--primary),#0a2a20);display:flex;align-items:center;justify-content:center;padding:1rem;overflow-y:auto}
 .auth-screen.hidden{display:none}
@@ -305,6 +334,9 @@ html{
   .modal-title{font-size:1.1rem}
   .report-table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
   .sale-actions .btn{flex:1;justify-content:center}
+  .ledger-summary{grid-template-columns:1fr 1fr}
+  .add-pay-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .add-pay-grid input[type=text],.add-pay-grid .btn{grid-column:1/-1}
   .more-menu-list .btn{flex:1 1 45%}
   .bottom-nav{display:flex;position:fixed;bottom:0;right:0;left:0;z-index:1000;background:var(--primary);box-shadow:0 -4px 24px rgba(0,0,0,.25);padding-bottom:env(safe-area-inset-bottom)}
   .bnav-btn{position:relative;flex:1;background:none;border:none;color:rgba(255,255,255,.65);font-family:'Cairo',sans-serif;font-size:.68rem;font-weight:700;padding:.5rem .15rem .45rem;display:flex;flex-direction:column;align-items:center;gap:.1rem;cursor:pointer}
@@ -727,19 +759,28 @@ html{
       <div class="form-grid">
         <div class="form-group"><label class="form-label">إجمالي السعر (ج.م) *</label><input type="number" class="form-control" name="totalPrice" required min="0" step="0.01" oninput="updateInstallmentsSummary()"></div>
         <div class="form-group"><label class="form-label">طريقة الدفع *</label>
-          <select class="form-control" name="paymentType" required onchange="toggleInstallmentFields()"><option value="cash">💵 كاش</option><option value="installment">📅 أقساط</option></select>
+          <select class="form-control" name="paymentType" required onchange="toggleInstallmentFields()"><option value="cash">💵 كاش (مدفوع بالكامل)</option><option value="installment">📅 تقسيط / دفعات</option></select>
         </div>
-        <div class="form-group"><label class="form-label">نظام الدفع المرن *</label>
-          <select class="form-control" name="paymentMode" required>
-            <option value="free">🆓 حرة</option>
-            <option value="installments">📅 أقساط</option>
-            <option value="both">🔀 الاثنين</option>
-          </select>
-        </div>
+        <input type="hidden" name="paymentMode" value="free">
       </div>
       <div id="installment-fields" style="display:none">
         <div class="form-grid">
           <div class="form-group"><label class="form-label">المقدم (ج.م)</label><input type="number" class="form-control" name="downPayment" min="0" step="0.01" value="0" oninput="updateInstallmentsSummary()"></div>
+        </div>
+        <div class="gen-box">
+          <div class="ledger-title" style="margin:0 0 .6rem">⚡ توليد الأقساط تلقائياً</div>
+          <div class="form-grid" style="margin-bottom:.75rem">
+            <div class="form-group"><label class="form-label">عدد الأقساط</label><input type="number" class="form-control" id="gen-count" min="1" max="240" inputmode="numeric" placeholder="مثال: 18"></div>
+            <div class="form-group"><label class="form-label">قسط كل</label>
+              <select class="form-control" id="gen-every">
+                <option value="1">شهر</option><option value="2">شهرين</option><option value="3">3 شهور</option>
+                <option value="4">4 شهور</option><option value="6">6 شهور</option><option value="12">سنة</option>
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">تاريخ أول قسط</label><input type="date" class="form-control" id="gen-start"></div>
+          </div>
+          <button type="button" class="btn btn-gold btn-sm" onclick="generateInstallments()">⚡ توليد الجدول</button>
+          <div style="font-size:.78rem;color:var(--text-muted);margin-top:.5rem">المتبقي بعد المقدم يتقسم بالتساوي، وأي كسور تُضاف على آخر قسط. تقدر تعدّل أي قسط بعد التوليد.</div>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem">
           <div class="form-section" style="margin:0;border:none;padding:0">📋 جدول الأقساط</div>
@@ -747,7 +788,7 @@ html{
         </div>
         <div id="installment-rows-container"></div>
         <div id="installments-sum-display"></div>
-        <div class="info-box">💡 حدد اسم ومبلغ وتاريخ كل قسط بشكل مستقل</div>
+        <div class="info-box">💡 المقدم يتسجل كدفعة مدفوعة بتاريخ البيع. باقي الدفعات تسجلها من شاشة حساب العميل.</div>
       </div>
       <div class="form-group" style="margin-top:1rem"><label class="form-label">ملاحظات</label><textarea class="form-control" name="notes" rows="2"></textarea></div>
       <div style="display:flex;gap:.75rem;margin-top:1.5rem">

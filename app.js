@@ -500,6 +500,76 @@ function todayStr() {
 }
 
 // ============================================================
+// LEDGER — حساب موحّد للدفعات
+// كل دفعة (من جدول payments) تُخصم تلقائياً من الأقساط، الأقدم استحقاقاً أولاً.
+// الدفعات القديمة المسجلة على قسط بعينه تبقى على قسطها.
+// الحساب في الذاكرة فقط — لا يغيّر أي شيء في قاعدة البيانات.
+// ============================================================
+function applyLedger(sale) {
+  const insts = sale.payments || [];
+  insts.forEach(inst => {
+    const pps = Array.isArray(inst.partialPayments) ? inst.partialPayments : [];
+    inst.pinnedPaid = pps.length > 0
+      ? pps.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+      : (parseFloat(inst.paidAmount) || 0);
+    inst.paidAmount = inst.pinnedPaid;
+  });
+
+  const order = insts.map((inst, idx) => ({ inst, idx }))
+    .sort((x, y) => (x.inst.dueDate || '') < (y.inst.dueDate || '') ? -1 : (x.inst.dueDate || '') > (y.inst.dueDate || '') ? 1 : x.idx - y.idx);
+
+  const free = freePayments.filter(p => p.saleId === sale.id)
+    .slice().sort((x, y) => (x.date || '') < (y.date || '') ? -1 : (x.date || '') > (y.date || '') ? 1 : 0);
+
+  const allocs = {};
+  let credit = 0;
+  for (const p of free) {
+    let left = p.amount;
+    allocs[p.id] = [];
+    for (const { inst } of order) {
+      if (left <= 0.005) break;
+      const room = (parseFloat(inst.totalAmount) || 0) - inst.paidAmount;
+      if (room <= 0.005) continue;
+      const take = Math.min(room, left);
+      inst.paidAmount += take;
+      left -= take;
+      allocs[p.id].push({ label: inst.label || 'قسط', amount: take, closes: room - take <= 0.005 });
+    }
+    if (left > 0.005) { credit += left; allocs[p.id].push({ label: null, amount: left }); }
+  }
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  let overdueAmount = 0, overdueCount = 0;
+  insts.forEach(inst => {
+    const total = parseFloat(inst.totalAmount) || 0;
+    inst.remainingAmount = Math.max(total - inst.paidAmount, 0);
+    inst.status = inst.remainingAmount <= 0.005 ? 'paid' : inst.paidAmount > 0.005 ? 'partial' : 'pending';
+    if (inst.status === 'paid') inst.remainingAmount = 0;
+    if (inst.status !== 'paid' && inst.dueDate) {
+      const due = new Date(inst.dueDate); due.setHours(0, 0, 0, 0);
+      if (due < today) { overdueAmount += inst.remainingAmount; overdueCount++; }
+    }
+  });
+
+  sale.ledger = { allocs, credit, overdueAmount, overdueCount };
+}
+
+// نص يوضح أين ذهبت الدفعة
+function describeAllocation(parts) {
+  if (!parts || parts.length === 0) return '';
+  return parts.map(x => x.label === null
+    ? `رصيد زائد (${formatCurrency(x.amount)})`
+    : `${x.closes ? 'أقفلت' : 'جزء من'} ${x.label} (${formatCurrency(x.amount)})`).join(' + ');
+}
+
+function addMonthsStr(dateStr, months) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const t = new Date(y, m - 1 + months, 1);
+  const last = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(Math.min(d, last)).padStart(2, '0')}`;
+}
+
+// ============================================================
 // GLOBAL STATE
 // ============================================================
 let projects = [];
@@ -656,6 +726,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadData() {
   try {
     [projects, sales, freePayments] = await Promise.all([DB.getProjects(), DB.getSales(), DB.getPayments()]);
+    sales.forEach(applyLedger);
   } catch (err) {
     console.error(err);
     showToast('خطأ في تحميل البيانات', 'error');
@@ -1102,9 +1173,7 @@ function renderUpcomingInstallments() {
 // DASHBOARD ALERTS (NEW) — عاجل / تنبيه / مكتمل
 // ============================================================
 function quickAddPayment(saleId) {
-  showAddPaymentForm = true;
-  renderPaymentPage(saleId);
-  document.getElementById('payment-page-modal').classList.add('active');
+  showSaleInstallments(saleId, true);
 }
 
 function renderPaymentAlerts() {
@@ -1295,11 +1364,12 @@ function renderSales(filteredList = null) {
             <div style="font-size:.88rem;font-weight:600;color:${remaining > 0 ? 'var(--danger)' : 'var(--success)'}">
               ${remaining > 0 ? `متبقي: ${formatCurrency(remaining)} ج.م` : '✅ مسدد بالكامل'}
             </div>
+            ${sale.ledger?.overdueAmount > 0.01 ? `<div style="font-size:.82rem;font-weight:700;color:var(--danger)">متأخر: ${formatCurrency(sale.ledger.overdueAmount)} ج.م</div>` : ''}
           </div>
         </div>
         <div class="sale-actions">
-          <button class="btn btn-primary btn-sm" onclick="showSaleInstallments('${sale.id}')">📋 الأقساط (${sale.payments?.length || 0})</button>
-          <button class="btn btn-gold btn-sm" onclick="openPaymentPage('${sale.id}')">💳 صفحة الدفع</button>
+          <button class="btn btn-primary btn-sm" onclick="showSaleInstallments('${sale.id}')">📋 الحساب والأقساط</button>
+          <button class="btn btn-gold btn-sm" onclick="quickAddPayment('${sale.id}')">➕ إضافة دفعة</button>
           <details class="more-menu">
             <summary class="btn btn-ghost btn-sm">⋯ المزيد</summary>
             <div class="more-menu-list">
@@ -1384,139 +1454,136 @@ function populateFilterProject() {
 // ============================================================
 // INSTALLMENTS MODAL (NEW)
 // ============================================================
-function showSaleInstallments(saleId) {
+function showSaleInstallments(saleId, focusAdd = false) {
   const sale = sales.find(s => s.id === saleId);
   if (!sale) return;
+  const project = projects.find(p => p.id === sale.projectId);
   const today = new Date(); today.setHours(0,0,0,0);
   const totalPaid = getCombinedTotalPaid(sale);
   const remaining = sale.totalPrice - totalPaid;
+  const ledger = sale.ledger || { allocs: {}, credit: 0, overdueAmount: 0 };
 
   const modal = document.getElementById('installments-modal');
   const title = document.getElementById('installments-modal-title');
   const content = document.getElementById('installments-modal-content');
 
-  title.textContent = `أقساط - ${sale.customerName}`;
+  title.textContent = `حساب — ${sale.customerName}`;
 
   const summaryHtml = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1rem;margin-bottom:1.5rem">
-      <div class="summary-card" style="padding:1rem"><div class="summary-label">إجمالي السعر</div><div class="summary-value" style="font-size:1.5rem">${formatCurrency(sale.totalPrice)}</div></div>
-      <div class="summary-card gold" style="padding:1rem"><div class="summary-label">المدفوع</div><div class="summary-value" style="font-size:1.5rem">${formatCurrency(totalPaid)}</div></div>
-      <div class="summary-card ${remaining > 0 ? 'danger' : ''}" style="padding:1rem"><div class="summary-label">المتبقي</div><div class="summary-value" style="font-size:1.5rem">${formatCurrency(remaining)}</div></div>
-    </div>`;
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:.9rem">
+      <span class="badge badge-blue">${project?.projectName || '—'}</span>
+      <span class="badge badge-green">${sale.unitType === 'apartment' ? '🏠 شقة' : '🏪 محل'} ${sale.unitNumber || ''}</span>
+      ${sale.customerPhone ? `<span class="badge badge-gray">📞 ${sale.customerPhone}</span>` : ''}
+    </div>
+    <div class="ledger-summary">
+      <div class="summary-card" style="padding:.8rem"><div class="summary-label">إجمالي السعر</div><div class="summary-value">${formatCurrency(sale.totalPrice)}</div></div>
+      <div class="summary-card gold" style="padding:.8rem"><div class="summary-label">المدفوع</div><div class="summary-value">${formatCurrency(totalPaid)}</div></div>
+      <div class="summary-card ${remaining > 0.01 ? 'danger' : ''}" style="padding:.8rem"><div class="summary-label">المتبقي</div><div class="summary-value">${formatCurrency(Math.max(remaining, 0))}</div></div>
+      <div class="summary-card ${ledger.overdueAmount > 0.01 ? 'danger' : ''}" style="padding:.8rem"><div class="summary-label">المتأخر</div><div class="summary-value">${formatCurrency(ledger.overdueAmount)}</div></div>
+    </div>
+    ${ledger.credit > 0.01 ? `<div class="info-box">💡 للعميل رصيد زائد عن جدول الأقساط: <b>${formatCurrency(ledger.credit)} ج.م</b></div>` : ''}`;
 
-  const installmentEntries = (sale.payments || []).map((inst, idx) => {
+  // ── إضافة دفعة (زر واحد) ──
+  const nextInst = (sale.payments || [])
+    .map((inst, idx) => ({ inst, idx }))
+    .filter(x => x.inst.status !== 'paid')
+    .sort((x, y) => (x.inst.dueDate || '') < (y.inst.dueDate || '') ? -1 : 1)[0]?.inst;
+  const chips = [];
+  if (nextInst) chips.push(`<button type="button" class="chip" onclick="document.getElementById('np-amount').value=${nextInst.remainingAmount}">${nextInst.label}: ${formatCurrency(nextInst.remainingAmount)}</button>`);
+  if (ledger.overdueAmount > 0.01 && (!nextInst || Math.abs(ledger.overdueAmount - nextInst.remainingAmount) > 0.01))
+    chips.push(`<button type="button" class="chip" onclick="document.getElementById('np-amount').value=${ledger.overdueAmount}">كل المتأخر: ${formatCurrency(ledger.overdueAmount)}</button>`);
+  if (remaining > 0.01) chips.push(`<button type="button" class="chip" onclick="document.getElementById('np-amount').value=${remaining}">كل المتبقي: ${formatCurrency(remaining)}</button>`);
+
+  const addHtml = remaining > 0.01 || (sale.payments || []).some(i => i.status !== 'paid') ? `
+    <div class="add-pay-box">
+      <div class="ledger-title" style="margin:0 0 .6rem">➕ إضافة دفعة</div>
+      <div class="add-pay-grid">
+        <input type="number" id="np-amount" class="form-control" placeholder="المبلغ (ج.م)" min="0" step="0.01" inputmode="decimal">
+        <input type="date" id="np-date" class="form-control" value="${todayStr()}">
+        <input type="text" id="np-notes" class="form-control" placeholder="ملاحظة (اختياري)">
+        <button class="btn btn-primary" style="justify-content:center" onclick="submitNewPayment('${saleId}')">💾 حفظ الدفعة</button>
+      </div>
+      ${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}
+      <div style="font-size:.78rem;color:var(--text-muted);margin-top:.5rem">الدفعة تُخصم تلقائياً من أقدم قسط غير مسدد، وتبقى مسجلة كدفعة مستقلة في السجل.</div>
+    </div>` : `<div class="info-box" style="background:#e8f5ee;border-color:var(--success);color:#155a35">✅ العميل مسدد بالكامل</div>`;
+
+  // ── جدول الأقساط ──
+  const instHtml = (sale.payments || []).map((inst, idx) => {
     const due = new Date(inst.dueDate); due.setHours(0,0,0,0);
-    const isOverdue = (inst.status === 'pending' || inst.status === 'partial') && due < today;
-    const isDueSoon = !isOverdue && (inst.status === 'pending' || inst.status === 'partial') && (due - today) <= 7 * 24 * 60 * 60 * 1000;
+    const open = inst.status !== 'paid';
+    const isOverdue = open && due < today;
+    const isDueSoon = open && !isOverdue && (due - today) <= 7 * 86400000;
 
-    let statusBadge = '';
+    let statusBadge;
     if (inst.status === 'paid') statusBadge = '<span class="badge badge-success">✅ مدفوع</span>';
-    else if (inst.status === 'partial') statusBadge = `<span class="badge badge-warning">⏳ جزئي (متبقي: ${formatCurrency(inst.remainingAmount)} ج.م)</span>`;
-    else if (isOverdue) statusBadge = '<span class="badge badge-danger">🔴 متأخر</span>';
+    else if (isOverdue) statusBadge = `<span class="badge badge-danger">🔴 متأخر</span>`;
+    else if (inst.status === 'partial') statusBadge = '<span class="badge badge-warning">⏳ جزئي</span>';
     else if (isDueSoon) statusBadge = '<span class="badge badge-warning">🟡 قريباً</span>';
     else statusBadge = '<span class="badge badge-info">⏳ قادم</span>';
 
-    const partialList = (inst.partialPayments || []).map(pp => `
-      <div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg-main);padding:0.5rem 0.75rem;border-radius:8px;margin-top:0.5rem;font-size:0.9rem">
-        <div>
-          <span style="font-weight:600;color:var(--success)">+${formatCurrency(pp.amount)} ج.م</span>
-          <span style="color:var(--text-secondary);margin-right:0.5rem">${formatDate(pp.date)}</span>
-          ${pp.note ? `<span style="color:var(--text-secondary)">(${pp.note})</span>` : ''}
-        </div>
-        ${inst.status !== 'paid' || (inst.partialPayments?.length > 1) ?
-          `<button class="btn btn-danger btn-xs" onclick="removePartialPayment('${saleId}', ${idx}, '${pp.id}')">🗑️</button>` : ''}
-      </div>`).join('');
-
-    const html = `
-      <div style="border:2px solid ${isOverdue ? 'var(--danger)' : isDueSoon ? 'var(--warning)' : 'var(--border)'};border-radius:12px;padding:1rem;margin-bottom:1rem;background:white">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.5rem">
+    return `
+      <div class="inst-row ${isOverdue ? 'overdue' : inst.status === 'paid' ? 'paid' : ''}">
+        <div class="inst-row-main">
           <div>
-            <div style="font-weight:700;font-size:1.1rem;color:var(--primary)">${inst.label}</div>
-            <div style="color:var(--text-secondary);font-size:0.9rem;display:flex;align-items:center;gap:0.5rem">
-              📅 ${formatDate(inst.dueDate)}
-              <label class="inst-date-edit" title="تعديل تاريخ الاستحقاق">✏️ تعديل
+            <div class="inst-label">${inst.label || `القسط ${idx + 1}`}</div>
+            <div class="inst-date">📅 ${formatDate(inst.dueDate)}
+              <label class="inst-date-edit" title="تعديل تاريخ الاستحقاق">✏️
                 <input type="date" value="${inst.dueDate || ''}" onchange="editInstallmentDate('${saleId}', ${idx}, this.value)">
               </label>
             </div>
           </div>
           <div style="text-align:left">
-            <div style="font-weight:700;color:var(--secondary);font-size:1.1rem">${formatCurrency(inst.totalAmount)} ج.م</div>
+            <div class="inst-amount">${formatCurrency(inst.totalAmount)}</div>
             ${statusBadge}
           </div>
         </div>
-
-        ${partialList}
-
-        ${inst.status !== 'paid' ? `
-          <div style="margin-top:1rem;padding-top:0.75rem;border-top:1px dashed var(--border)">
-            <div style="font-size:0.85rem;font-weight:600;color:var(--primary);margin-bottom:0.5rem">➕ تسجيل دفعة جديدة</div>
-            <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-              <input type="number" id="partial-amount-${idx}" placeholder="المبلغ" max="${inst.remainingAmount}"
-                style="padding:0.5rem;border:2px solid var(--border);border-radius:8px;font-family:Cairo,sans-serif;width:130px"
-                value="${inst.remainingAmount}">
-              <input type="date" id="partial-date-${idx}"
-                style="padding:0.5rem;border:2px solid var(--border);border-radius:8px;font-family:Cairo,sans-serif"
-                value="${todayStr()}">
-              <input type="text" id="partial-note-${idx}" placeholder="ملاحظة (اختياري)"
-                style="padding:0.5rem;border:2px solid var(--border);border-radius:8px;font-family:Cairo,sans-serif;flex:1;min-width:100px">
-              <button class="btn btn-primary btn-sm" onclick="submitPartialPayment('${saleId}', ${idx})">💾 تسجيل</button>
-            </div>
-            ${inst.status === 'partial' ? `
-              <button class="btn btn-secondary btn-sm" style="margin-top:0.5rem" onclick="payRemainingAmount('${saleId}', ${idx})">
-                💰 دفع المتبقي كاملاً (${formatCurrency(inst.remainingAmount)} ج.م)
-              </button>` : ''}
-          </div>` : ''}
-
-        <!-- إيصالات القسط -->
-        <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px dashed var(--border)">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
-            <div style="font-size:0.85rem;font-weight:600;color:var(--text-secondary)">📎 إيصالات (${(inst.files||[]).length})</div>
-            <label class="btn btn-xs" style="background:var(--bg-main);cursor:pointer;color:var(--primary)">
-              📤 رفع إيصال
-              <input type="file" accept="image/*,.pdf" style="display:none"
-                onchange="uploadInstallmentFile(this, '${saleId}', ${idx})">
-            </label>
-          </div>
-          ${(inst.files||[]).length > 0 ? (inst.files||[]).map(f => `
-            <div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg-main);padding:0.4rem 0.6rem;border-radius:8px;margin-bottom:0.3rem;font-size:0.85rem">
-              <span>${f.type === 'pdf' ? '📄' : '🖼️'} ${f.name}</span>
-              <div style="display:flex;gap:0.3rem">
-                <button type="button" class="btn btn-xs btn-secondary" onclick="openStoredFile('${f.path}')">👁️</button>
-                <button class="btn btn-xs btn-danger" onclick="deleteInstallmentFile('${saleId}', ${idx}, '${f.path}')">🗑️</button>
-              </div>
-            </div>`).join('') : ''}
+        ${inst.status === 'partial' ? `<div class="inst-progress">مدفوع ${formatCurrency(inst.paidAmount)} — <b style="color:var(--danger)">متبقي ${formatCurrency(inst.remainingAmount)}</b></div>` : ''}
+        <div class="inst-files">
+          <label class="inst-upload">📤 إيصال${(inst.files||[]).length ? ` (${inst.files.length})` : ''}
+            <input type="file" accept="image/*,.pdf" style="display:none" onchange="uploadInstallmentFile(this, '${saleId}', ${idx})">
+          </label>
+          ${(inst.files||[]).map(f => `
+            <span class="file-pill">
+              <button type="button" onclick="openStoredFile('${f.path}')">${f.type === 'pdf' ? '📄' : '🖼️'} ${f.name}</button>
+              <button type="button" class="x" onclick="deleteInstallmentFile('${saleId}', ${idx}, '${f.path}')">×</button>
+            </span>`).join('')}
         </div>
       </div>`;
-    return { sortDate: inst.dueDate || sale.saleDate, html };
-  });
+  }).join('');
 
-  // الدفعات الحرة (من جدول payments المستقل) — تُعرض كصفوف في نفس القائمة
-  const freeEntries = getFreePaymentsForSale(saleId).map(p => ({
-    sortDate: p.date,
-    html: `
-      <div style="border:2px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem;background:#fff">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.5rem">
-          <div>
-            <div style="font-weight:700;font-size:1.1rem;color:var(--primary)">🆓 دفعة حرة</div>
-            <div style="color:var(--text-muted);font-size:0.9rem">📅 ${formatDate(p.date)}</div>
-            ${p.notes ? `<div style="color:var(--text-muted);font-size:0.85rem;margin-top:0.35rem">📝 ${p.notes}</div>` : ''}
-          </div>
-          <div style="text-align:left">
-            <div style="font-weight:700;color:var(--gold);font-size:1.1rem">${formatCurrency(p.amount)} ج.م</div>
-            <span class="badge badge-gray">—</span>
-          </div>
-        </div>
-      </div>`
+  // ── سجل الدفعات (كل دفعة سطر مستقل) ──
+  const log = [];
+  (sale.payments || []).forEach((inst, idx) => (inst.partialPayments || []).forEach(pp => log.push({
+    date: pp.date, amount: parseFloat(pp.amount) || 0, note: pp.note || '',
+    where: `على ${inst.label || 'قسط'}`,
+    del: pp.id ? `removePartialPayment('${saleId}', ${idx}, '${pp.id}')` : ''
+  })));
+  getFreePaymentsForSale(saleId).forEach(p => log.push({
+    date: p.date, amount: p.amount, note: p.notes || '',
+    where: describeAllocation(ledger.allocs[p.id]),
+    del: `deleteFreePayment('${p.id}','${saleId}')`
   }));
+  log.sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : 0));
 
-  // ادمج الأقساط والدفعات الحرة في قائمة واحدة، مرتبة بالتاريخ الأحدث أولاً
-  const installmentsHtml = [...installmentEntries, ...freeEntries]
-    .sort((a, b) => (a.sortDate < b.sortDate ? 1 : a.sortDate > b.sortDate ? -1 : 0))
-    .map(e => e.html)
-    .join('');
+  const logHtml = log.length === 0
+    ? `<div class="empty" style="padding:1.5rem"><p>لا توجد دفعات مسجلة بعد</p></div>`
+    : log.map(e => `
+      <div class="pay-row">
+        <div style="min-width:0">
+          <div><span class="pay-amount">+${formatCurrency(e.amount)}</span> <span class="pay-date">${formatDate(e.date)}</span></div>
+          ${e.where ? `<div class="pay-where">${e.where}</div>` : ''}
+          ${e.note ? `<div class="pay-where">📝 ${e.note}</div>` : ''}
+        </div>
+        ${e.del ? `<button class="btn btn-danger btn-xs" onclick="${e.del}">🗑️</button>` : ''}
+      </div>`).join('');
 
-  content.innerHTML = summaryHtml + installmentsHtml;
+  content.innerHTML = summaryHtml + addHtml +
+    `<div class="ledger-title">📋 جدول الأقساط (${(sale.payments || []).length})</div>` +
+    (instHtml || `<div class="empty" style="padding:1.5rem"><p>لا يوجد جدول أقساط لهذه البيعة</p></div>`) +
+    `<div class="ledger-title">🧾 سجل الدفعات (${log.length})</div>` + logHtml;
+
   modal.classList.add('active');
+  if (focusAdd) setTimeout(() => document.getElementById('np-amount')?.focus(), 100);
 }
 
 async function submitPartialPayment(saleId, installmentIndex) {
@@ -1613,6 +1680,7 @@ function openAddSaleModal() {
   document.getElementById('add-sale-form').reset();
   installmentRows = [];
   renderInstallmentRows();
+  ['gen-count', 'gen-start'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.querySelector('#add-sale-modal input[name="saleDate"]').value = todayStr();
   document.getElementById('installment-fields').style.display = 'none';
   document.getElementById('add-sale-modal').classList.add('active');
@@ -1621,7 +1689,6 @@ function openAddSaleModal() {
 function toggleInstallmentFields() {
   const type = event.target.value;
   document.getElementById('installment-fields').style.display = type === 'installment' ? 'block' : 'none';
-  if (type === 'installment' && installmentRows.length === 0) addInstallmentRow();
 }
 
 function addInstallmentRow() {
@@ -1641,7 +1708,8 @@ function renderInstallmentRows() {
   if (!container) return;
 
   if (installmentRows.length === 0) {
-    container.innerHTML = `<div style="text-align:center;color:var(--text-secondary);padding:1rem">اضغط "إضافة قسط" لإضافة أقساط</div>`;
+    container.innerHTML = `<div style="text-align:center;color:var(--text-secondary);padding:1rem">استخدم "توليد الجدول" أو "إضافة قسط" — أو اتركه فارغاً لو البيعة بمقدم ودفعات بدون جدول</div>`;
+    updateInstallmentsSummary();
     return;
   }
 
@@ -1669,6 +1737,35 @@ function renderInstallmentRows() {
     </div>`).join('');
 
   updateInstallmentsSummary();
+}
+
+// ── توليد جدول الأقساط تلقائياً ───────────────────────────
+function generateInstallments() {
+  const form = document.getElementById('add-sale-form');
+  const totalPrice = parseFloat(form.querySelector('[name="totalPrice"]').value) || 0;
+  const downPayment = parseFloat(form.querySelector('[name="downPayment"]').value) || 0;
+  const saleDate = form.querySelector('[name="saleDate"]').value || todayStr();
+  const count = parseInt(document.getElementById('gen-count').value);
+  const every = parseInt(document.getElementById('gen-every').value) || 1;
+  let start = document.getElementById('gen-start').value;
+
+  if (!totalPrice) { showToast('اكتب إجمالي السعر أولاً', 'warning'); return; }
+  if (!count || count < 1 || count > 240) { showToast('اكتب عدد الأقساط', 'warning'); return; }
+  const rest = Math.round((totalPrice - downPayment) * 100) / 100;
+  if (rest <= 0) { showToast('المقدم يغطي السعر كله — لا يوجد مبلغ للتقسيط', 'warning'); return; }
+  if (installmentRows.some(r => r.amount || r.dueDate) && !confirm('سيتم استبدال الأقساط المكتوبة حالياً. متابعة؟')) return;
+  // لو تاريخ أول قسط فاضي: الأقساط تبدأ بعد تاريخ البيع بفترة واحدة، وعلى نفس يوم الشهر
+  const anchor = start || saleDate, offset = start ? 0 : 1;
+  if (!start) document.getElementById('gen-start').value = addMonthsStr(saleDate, every);
+
+  const base = Math.floor(rest / count);
+  installmentRows = [];
+  for (let i = 0; i < count; i++) {
+    const amount = i === count - 1 ? Math.round((rest - base * (count - 1)) * 100) / 100 : base;
+    installmentRows.push({ label: `القسط ${i + 1}`, amount: String(amount), dueDate: addMonthsStr(anchor, (i + offset) * every) });
+  }
+  renderInstallmentRows();
+  showToast(`تم توليد ${count} قسط — راجع الجدول قبل الحفظ`, 'info');
 }
 
 function updateInstallmentsSummary() {
@@ -1782,7 +1879,6 @@ async function addSale(event) {
 
   // Validate installments
   if (paymentType === 'installment') {
-    if (installmentRows.length === 0) { showToast('أضف قسطاً واحداً على الأقل', 'warning'); return; }
     for (const r of installmentRows) {
       if (!r.amount || !r.dueDate) { showToast('تأكد من إدخال المبلغ والتاريخ لكل قسط', 'warning'); return; }
     }
@@ -1790,7 +1886,7 @@ async function addSale(event) {
     const downPayment = parseFloat(fd.get('downPayment')) || 0;
     const installmentsTotal = installmentRows.reduce((s, r) => s + parseFloat(r.amount), 0);
     const diff = Math.abs(downPayment + installmentsTotal - totalPrice);
-    if (diff > 0.01) {
+    if (installmentRows.length > 0 && diff > 0.01) {
       if (!confirm(`⚠️ مجموع الأقساط والمقدم (${formatCurrency(downPayment + installmentsTotal)}) لا يساوي إجمالي السعر (${formatCurrency(totalPrice)}).\nهل تريد المتابعة؟`)) return;
     }
   }
@@ -2426,7 +2522,8 @@ function updateUnitTypes() {
 }
 
 function getTotalPaid(sale) {
-  return (sale.payments || []).reduce((s, inst) => s + (parseFloat(inst.paidAmount) || 0), 0);
+  // المدفوع المسجل على الأقساط نفسها فقط (بدون الدفعات الموزّعة من جدول payments)
+  return (sale.payments || []).reduce((s, inst) => s + (parseFloat(inst.pinnedPaid ?? inst.paidAmount) || 0), 0);
 }
 
 // ── النظام المرن: دفعات حرة من جدول payments المستقل ───────
@@ -3014,104 +3111,12 @@ function closeModal(id) {
 // ============================================================
 let showAddPaymentForm = false;
 
-function openPaymentPage(saleId) {
-  showAddPaymentForm = false;
-  renderPaymentPage(saleId);
-  document.getElementById('payment-page-modal').classList.add('active');
-}
+function openPaymentPage(saleId) { showSaleInstallments(saleId); }
 
+// بعد أي حفظ/حذف دفعة: أعد رسم شاشة حساب العميل
 function renderPaymentPage(saleId) {
-  const sale = sales.find(s => s.id === saleId);
-  if (!sale) return;
-  const project = projects.find(p => p.id === sale.projectId);
-  const title = document.getElementById('payment-page-title');
-  const content = document.getElementById('payment-page-content');
-
-  const totalPaid = getCombinedTotalPaid(sale);
-  const remaining = sale.totalPrice - totalPaid;
-  const totalPayments = totalPaid - sale.downPayment;
-  const history = getFreePaymentsForSale(saleId).slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-
-  title.textContent = `💳 صفحة الدفع — ${sale.customerName}`;
-
-  content.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.75rem;margin-bottom:1.25rem">
-      <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
-        <span class="badge badge-blue">${project?.projectName || '—'}</span>
-        <span class="badge badge-green">${sale.unitType === 'apartment' ? '🏠 شقة' : '🏪 محل'} ${sale.unitNumber || ''}</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:.5rem">
-        <span class="badge badge-gold">${paymentModeLabel(sale.paymentMode)}</span>
-        <select id="payment-mode-select" class="form-control" style="padding:.3rem .6rem;font-size:.8rem;width:auto">
-          <option value="free" ${sale.paymentMode === 'free' ? 'selected' : ''}>🆓 حرة</option>
-          <option value="installments" ${sale.paymentMode === 'installments' ? 'selected' : ''}>📅 أقساط</option>
-          <option value="both" ${sale.paymentMode === 'both' ? 'selected' : ''}>🔀 الاثنين</option>
-        </select>
-        <button class="btn btn-ghost btn-xs" onclick="savePaymentMode('${saleId}')">💾</button>
-      </div>
-    </div>
-
-    <div class="stats-row" style="margin-bottom:1.25rem">
-      <div class="stat-card"><div class="stat-label">إجمالي ثمن الوحدة</div><div class="stat-value">${formatCurrency(sale.totalPrice)}</div><div class="stat-sub">ج.م</div></div>
-      <div class="stat-card gold"><div class="stat-label">المقدم المدفوع</div><div class="stat-value">${formatCurrency(sale.downPayment)}</div><div class="stat-sub">ج.م</div></div>
-      <div class="stat-card info"><div class="stat-label">إجمالي الدفعات</div><div class="stat-value">${formatCurrency(totalPayments)}</div><div class="stat-sub">يشمل الأقساط + الدفعات الحرة</div></div>
-      <div class="stat-card ${remaining > 0 ? 'danger' : ''}"><div class="stat-label">المتبقي</div><div class="stat-value">${formatCurrency(remaining)}</div><div class="stat-sub">ج.م</div></div>
-    </div>
-
-    ${sale.paymentMode !== 'free' ? `<div class="info-box">💡 لمتابعة جدول الأقساط الثابتة استخدم زر "📋 الأقساط" من قائمة المبيعات</div>` : ''}
-
-    <div class="card-hd" style="margin-top:1rem;border-bottom:none;padding-bottom:0">
-      <div class="card-title">📜 سجل الدفعات الحرة (${history.length})</div>
-      <button class="btn btn-gold btn-sm" onclick="toggleAddPaymentForm('${saleId}')">➕ إضافة دفعة</button>
-    </div>
-
-    <div id="add-payment-form-wrap"></div>
-
-    ${history.length === 0
-      ? `<div class="empty"><div class="empty-icon">💳</div><p>لا توجد دفعات حرة مسجلة بعد</p></div>`
-      : `<table class="report-table" style="width:100%">
-          <thead><tr><th>التاريخ</th><th>المبلغ</th><th>تاريخ الاستحقاق</th><th>الملاحظة</th><th></th></tr></thead>
-          <tbody>
-            ${history.map(p => `
-              <tr>
-                <td>${formatDate(p.date)}</td>
-                <td style="font-weight:700;color:var(--gold)">${formatCurrency(p.amount)} ج.م</td>
-                <td>${p.dueDate ? formatDate(p.dueDate) : '—'}</td>
-                <td>${p.notes || '—'}</td>
-                <td><button class="btn btn-danger btn-xs" onclick="deleteFreePayment('${p.id}','${saleId}')">🗑️</button></td>
-              </tr>`).join('')}
-          </tbody>
-        </table>`}
-  `;
-
-  if (showAddPaymentForm) renderAddPaymentForm(saleId);
-}
-
-function toggleAddPaymentForm(saleId) {
-  showAddPaymentForm = !showAddPaymentForm;
-  if (showAddPaymentForm) renderAddPaymentForm(saleId);
-  else { const wrap = document.getElementById('add-payment-form-wrap'); if (wrap) wrap.innerHTML = ''; }
-}
-
-function renderAddPaymentForm(saleId) {
-  const sale = sales.find(s => s.id === saleId);
-  const wrap = document.getElementById('add-payment-form-wrap');
-  if (!wrap || !sale) return;
-  const showDueDate = sale.paymentMode === 'installments' || sale.paymentMode === 'both';
-  const today = todayStr();
-  wrap.innerHTML = `
-    <div class="card" style="background:var(--bg-subtle);box-shadow:none;margin-bottom:1rem">
-      <div class="form-grid">
-        <div class="form-group"><label class="form-label">المبلغ *</label><input type="number" id="np-amount" class="form-control" min="0" step="0.01"></div>
-        <div class="form-group"><label class="form-label">التاريخ *</label><input type="date" id="np-date" class="form-control" value="${today}"></div>
-        ${showDueDate ? `<div class="form-group"><label class="form-label">تاريخ الاستحقاق</label><input type="date" id="np-due-date" class="form-control"></div>` : ''}
-        <div class="form-group"><label class="form-label">ملاحظة</label><input type="text" id="np-notes" class="form-control"></div>
-      </div>
-      <div style="display:flex;gap:.5rem">
-        <button class="btn btn-primary btn-sm" onclick="submitNewPayment('${saleId}')">✅ حفظ الدفعة</button>
-        <button class="btn btn-ghost btn-sm" onclick="toggleAddPaymentForm('${saleId}')">إلغاء</button>
-      </div>
-    </div>`;
+  showSaleInstallments(saleId);
+  checkOverdueInstallments();
 }
 
 async function submitNewPayment(saleId) {
@@ -3126,7 +3131,6 @@ async function submitNewPayment(saleId) {
   const added = await DB.addPayment({ saleId, amount, date, dueDate, notes });
   if (added) {
     await loadData();
-    showAddPaymentForm = false;
     renderPaymentPage(saleId);
     updateDashboard();
     renderSales();
