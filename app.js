@@ -94,6 +94,17 @@ const DB = {
     return true;
   },
 
+  // ربط وحدة ببيعة: تصبح مباعة ويُمسح الحجز
+  async linkUnitToSale(unitId, saleId) {
+    const { error } = await this.supabase.from('units').update({
+      sale_id: saleId, status: 'available',
+      reserved_by: '', reserved_phone: '', reserved_amount: 0, reserved_date: null,
+      updated_at: new Date().toISOString()
+    }).eq('id', unitId);
+    if (error) { console.error('linkUnitToSale error:', error); return false; }
+    return true;
+  },
+
   async deleteProjectUnits(projectId) {
     const { error } = await this.supabase.from('units').delete().eq('project_id', projectId);
     if (error) { console.error(error); showToast('خطأ في حذف الوحدات', 'error'); return false; }
@@ -1868,6 +1879,7 @@ function openAddSaleModal() {
   installmentRows = [];
   renderInstallmentRows();
   ['gen-count', 'gen-start'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  populateSaleUnitPicker();
   document.querySelector('#add-sale-modal input[name="saleDate"]').value = todayStr();
   document.getElementById('installment-fields').style.display = 'none';
   document.getElementById('add-sale-modal').classList.add('active');
@@ -2109,6 +2121,11 @@ async function addSale(event) {
     installments: installmentRows.map(r => ({ label: r.label, amount: parseFloat(r.amount), dueDate: r.dueDate }))
   });
   if (added) {
+    const pickedUnit = fd.get('unitId');
+    if (pickedUnit && pickedUnit !== '__manual' && added.id) {
+      const linked = await DB.linkUnitToSale(pickedUnit, added.id);
+      if (!linked) showToast('تم حفظ البيعة، لكن تعذر ربطها بالوحدة — اربطها من شاشة الوحدات', 'warning', 6000);
+    }
     await loadData();
     closeModal('add-sale-modal');
     event.target.reset();
@@ -3439,12 +3456,26 @@ async function buildUnifiedReportData() {
   const statFor = (projList) => {
     const pid = new Set(projList.map(p => p.id));
     const ss = selSales.filter(s => pid.has(s.projectId));
-    const units = sum(projList, p => (p.apartmentsCount || 0) + (p.shopsCount || 0));
+    // لو المشروع له جدول وحدات: العدد والمتاح والمحجوز منه. وإلا: عدد الشقق والمحلات المسجل على المشروع
+    let unitsCount = 0, available = 0, reserved = 0;
+    projList.forEach(p => {
+      const pu = units.filter(u => u.projectId === p.id);
+      const pSold = ss.filter(s => s.projectId === p.id).length;
+      if (pu.length) {
+        unitsCount += pu.length;
+        available += pu.filter(u => getUnitStatus(u) === 'available').length;
+        reserved += pu.filter(u => getUnitStatus(u) === 'reserved').length;
+      } else {
+        const n = (p.apartmentsCount || 0) + (p.shopsCount || 0);
+        unitsCount += n;
+        available += Math.max(n - pSold, 0);
+      }
+    });
     const contracts = sum(ss, s => s.totalPrice);
     const collected = sum(ss, s => getCombinedTotalPaid(s));
     const costs = sum(expenses.filter(e => pid.has(e.projectId)), e => e.amount);
     return {
-      units, sold: ss.length, available: Math.max(units - ss.length, 0),
+      units: unitsCount, sold: ss.length, available, reserved,
       contracts, collected, remaining: contracts - collected,
       overdue: sum(ss, s => s.ledger?.overdueAmount || 0),
       costs, netCash: collected - costs, netExpected: contracts - costs
@@ -3501,7 +3532,7 @@ async function renderUnifiedReport() {
     <div class="card">
       <div class="card-hd"><div class="card-title">🏢 الوضع الحالي — ${d.projectLabel}</div></div>
       <div class="ur-grid">
-        ${card('الوحدات', `${t.sold} / ${t.units}`, '', `مباعة — متاح ${t.available}`)}
+        ${card('الوحدات', `${t.sold} / ${t.units}`, '', `مباعة — متاح ${t.available}${t.reserved ? ` — محجوز ${t.reserved}` : ''}`)}
         ${card('قيمة العقود', c(t.contracts), 'info')}
         ${card('المحصّل', c(t.collected), 'gold')}
         ${card('المتبقي تحصيله', c(t.remaining), t.remaining > 0.01 ? 'danger' : '')}
@@ -3697,7 +3728,7 @@ async function exportUnifiedExcel() {
   const summary = [
     ['التقرير', d.projectLabel], ['الفترة', d.periodLabel], ['تاريخ الإصدار', todayStr()], [],
     ['الوضع الحالي', ''],
-    ['إجمالي الوحدات', t.units], ['الوحدات المباعة', t.sold], ['الوحدات المتاحة', t.available],
+    ['إجمالي الوحدات', t.units], ['الوحدات المباعة', t.sold], ['الوحدات المحجوزة', t.reserved], ['الوحدات المتاحة', t.available],
     ['قيمة العقود', r2(t.contracts)], ['المحصّل', r2(t.collected)], ['المتبقي تحصيله', r2(t.remaining)],
     ['المتأخر', r2(t.overdue)], ['المصاريف', r2(t.costs)],
     ['الصافي الفعلي (محصّل − مصاريف)', r2(t.netCash)], ['الصافي المتوقع (عقود − مصاريف)', r2(t.netExpected)], [],
@@ -4198,6 +4229,53 @@ async function deleteAllProjectUnits(projectId) {
     showToast(`تم مسح ${list.length} وحدة`);
   }
   hideLoading();
+}
+
+// ── اختيار الوحدة عند تسجيل بيعة ─────────────────────────
+function unitDisplayLabel(u) {
+  return [u.unitNumber, floorLabel(u.floor), u.model ? `نموذج ${u.model}` : '', u.area ? `${u.area} م²` : ''].filter(Boolean).join(' — ');
+}
+
+// رقم الوحدة كما يُحفظ على البيعة: يضاف الدور لو الرقم مكرر في أكثر من دور
+function unitNumberForSale(u) {
+  const repeated = units.filter(x => x.projectId === u.projectId && normUnitNo(x.unitNumber) === normUnitNo(u.unitNumber)).length > 1;
+  return repeated ? `${u.unitNumber} - ${floorLabel(u.floor)}` : u.unitNumber;
+}
+
+function populateSaleUnitPicker() {
+  const form = document.getElementById('add-sale-form');
+  const group = document.getElementById('sale-unit-picker-group');
+  const sel = document.getElementById('sale-unit-picker');
+  if (!form || !group || !sel) return;
+  const projectId = form.projectId.value;
+  const open = sortUnits(units.filter(u => u.projectId === projectId)).filter(u => getUnitStatus(u) !== 'sold');
+  const hasUnits = units.some(u => u.projectId === projectId);
+  group.style.display = hasUnits ? '' : 'none';
+  sel.innerHTML = '<option value="">اختر الوحدة</option>' +
+    open.map(u => `<option value="${u.id}">${unitDisplayLabel(u)}${getUnitStatus(u) === 'reserved' ? ` — 🟡 محجوزة: ${shortName(u.reservedBy)}` : ''}</option>`).join('') +
+    '<option value="__manual">✏️ وحدة غير موجودة في الجدول (كتابة يدوية)</option>';
+  sel.required = hasUnits;
+  form.unitNumber.value = '';
+  document.getElementById('sale-unit-number-group').style.display = hasUnits ? 'none' : '';
+}
+
+function onSaleUnitPicked() {
+  const form = document.getElementById('add-sale-form');
+  const v = document.getElementById('sale-unit-picker').value;
+  const manual = v === '__manual';
+  document.getElementById('sale-unit-number-group').style.display = manual ? '' : 'none';
+  if (manual || !v) { form.unitNumber.value = ''; return; }
+  const u = units.find(x => x.id === v);
+  if (!u) return;
+  form.unitNumber.value = unitNumberForSale(u);
+  if (![...form.unitType.options].some(o => o.value === u.unitType)) form.unitType.innerHTML += `<option value="${u.unitType}">${u.unitType === 'shop' ? '🏪 محل' : '🏠 شقة'}</option>`;
+  form.unitType.value = u.unitType;
+  // وحدة محجوزة: املأ بيانات العميل من الحجز لو الخانات فاضية
+  if (u.status === 'reserved') {
+    if (!form.customerName.value && u.reservedBy) form.customerName.value = u.reservedBy;
+    if (!form.customerPhone.value && u.reservedPhone) form.customerPhone.value = u.reservedPhone;
+    if (u.reservedAmount > 0) showToast(`الوحدة محجوزة بمبلغ ${formatCurrency(u.reservedAmount)} ج.م — احسبه ضمن المقدم لو لزم`, 'info', 6000);
+  }
 }
 
 // ── التوليد السريع ───────────────────────────────────────

@@ -758,12 +758,15 @@ html{
       <div class="form-section">🏢 بيانات الوحدة</div>
       <div class="form-grid">
         <div class="form-group"><label class="form-label">المشروع *</label>
-          <select class="form-control" name="projectId" id="sale-project-select" required onchange="updateUnitTypes()"><option value="">اختر</option></select>
+          <select class="form-control" name="projectId" id="sale-project-select" required onchange="updateUnitTypes();populateSaleUnitPicker()"><option value="">اختر</option></select>
         </div>
         <div class="form-group"><label class="form-label">نوع الوحدة *</label>
           <select class="form-control" name="unitType" required><option value="">اختر</option><option value="apartment">🏠 شقة</option><option value="shop">🏪 محل</option></select>
         </div>
-        <div class="form-group"><label class="form-label">رقم الوحدة</label><input type="text" class="form-control" name="unitNumber"></div>
+        <div class="form-group" id="sale-unit-picker-group" style="display:none"><label class="form-label">الوحدة (من المتاح)</label>
+          <select class="form-control" name="unitId" id="sale-unit-picker" onchange="onSaleUnitPicked()"></select>
+        </div>
+        <div class="form-group" id="sale-unit-number-group"><label class="form-label">رقم الوحدة</label><input type="text" class="form-control" name="unitNumber"></div>
         <div class="form-group"><label class="form-label">تاريخ البيع *</label><input type="date" class="form-control" name="saleDate" required></div>
       </div>
       <div class="form-section">👤 بيانات العميل</div>
