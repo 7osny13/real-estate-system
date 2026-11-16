@@ -1571,6 +1571,7 @@ function renderSales(filteredList = null) {
             <summary class="btn btn-ghost btn-sm">⋯ المزيد</summary>
             <div class="more-menu-list">
               <button class="btn btn-ghost btn-sm" onclick="openSaleFilesModal('${sale.id}')">📎 ملفات (${(sale.files||[]).length})</button>
+              <button class="btn btn-ghost btn-sm" onclick="openContractModal('${sale.id}')">📝 العقد</button>
               <button class="btn btn-ghost btn-sm" onclick="exportClientPDF('${sale.id}')">📄 كشف حساب</button>
               <button class="btn btn-ghost btn-sm" onclick="printClientPage('${sale.id}')">🖨️ طباعة بيانات</button>
               <button class="btn btn-ghost btn-sm" onclick="openEditSaleModal('${sale.id}')">✏️ تعديل</button>
