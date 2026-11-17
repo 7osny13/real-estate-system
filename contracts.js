@@ -126,9 +126,7 @@ function fillContractXml(xml, d) {
   xml = xml.replace(instRe, (para) => {
     const rows = (d.installments || []).filter(r => Number(r.amount) > 0 || r.dueDate);
     const list = rows.length ? rows : [{ amount: 0, dueDate: '' }];
-    // نسخ سطر القسط بنفس رقم التعريف بيخلي Word يعترض — بنشيل الأرقام من النسخ
-    const clone = para.replace(/ w14:(paraId|textId)="[^"]*"/g, '');
-    return list.map((r, i) => put(i ? clone : para, {
+    return list.map(r => put(para, {
       inst_amount: Number(r.amount) > 0 ? contractMoney(r.amount) : '',
       inst_words: Number(r.amount) > 0 ? tafqeet(r.amount) : '',
       inst_date: contractDate(r.dueDate)
@@ -185,78 +183,13 @@ function renderContractBundleStatus(state) {
     : `${picker}<div class="gen-box" style="margin-bottom:1rem"><div style="font-weight:700;margin-bottom:.4rem">📂 نماذج العقود لسه ما اترفعتش</div><div style="font-size:.85rem;margin-bottom:.6rem">ارفع ملف <strong>contract-templates.zip</strong> مرة واحدة — بيتحفظ في التخزين الخاص للموقع.</div><button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('contract-bundle-input').click()">⬆️ رفع ملف النماذج</button></div>`;
 }
 
-// ── ترتيب الصفحات ───────────────────────────────────────
-// النماذج الأصلية كانت بتعتمد على سطر توقيع وسطور فاضية في مكان ثابت عشان كل صفحة تخلص بالتوقيع.
-// مع تغيير عدد الأقساط أو طول البيانات الكلام بيزق وتظهر فراغات وصفحة فاضية.
-// الحل: التوقيع يتحط في تذييل الصفحة (بيظهر أسفل كل صفحة تلقائياً)، وتتشال سطور التوقيع والفراغات من النص،
-// وعناوين البنود تفضل لازقة في الكلام اللي بعدها.
-const CONTRACT_FOOTER_REL = 'rIdContractFooter';
-function contractParaText(p) { return (p.match(/<w:t(?: [^>]*)?>[^<]*/g) || []).map(t => t.replace(/^<w:t(?: [^>]*)?>/, '')).join(''); }
-function contractKeepNext(p) {
-  if (p.includes('<w:keepNext/>')) return p;
-  if (/<w:pPr>/.test(p)) {
-    return /<w:pPr><w:pStyle [^>]*\/>/.test(p)
-      ? p.replace(/(<w:pPr><w:pStyle [^>]*\/>)/, '$1<w:keepNext/>')
-      : p.replace('<w:pPr>', '<w:pPr><w:keepNext/>');
-  }
-  return p.replace(/^(<w:p(?: [^>]*)?>)/, '$1<w:pPr><w:keepNext/></w:pPr>');
-}
-function layoutContractXml(xml) {
-  const paraRe = /<w:p[ >][\s\S]*?<\/w:p>/g;
-  const paras = [];
-  let m;
-  while ((m = paraRe.exec(xml))) paras.push({ start: m.index, end: m.index + m[0].length, xml: m[0], text: contractParaText(m[0]) });
-  const isEmpty = (p) => !p.text.trim() && !/<w:drawing|<w:pict|<w:object/.test(p.xml);
-  const isPageSig = (p) => p.text.includes('الطرف الأول') && p.text.includes('الطرف الثاني') && !p.text.includes('البائع');
-  let lastReal = -1;
-  paras.forEach((p, i) => { if (!isEmpty(p)) lastReal = i; });
-  let dropping = false;
-  paras.forEach((p, i) => {
-    const t = p.text.trim();
-    if (isPageSig(p) || t.startsWith('تابع البند')) { p.out = ''; dropping = true; return; }
-    if (dropping && isEmpty(p)) { p.out = ''; return; }
-    dropping = false;
-    if (i > lastReal && i > 0) { p.out = ''; return; }          // سطور فاضية في آخر العقد = صفحة زيادة
-    if (/^(البند|تمهيد)/.test(t) || t.startsWith('الطرف الأول (البائع)') || /^الاسم\s*\//.test(t)) p.out = contractKeepNext(p.xml);
-  });
-  for (let i = paras.length - 1; i >= 0; i--) {
-    const p = paras[i];
-    if (p.out !== undefined) xml = xml.slice(0, p.start) + p.out + xml.slice(p.end);
-  }
-  // ربط التذييل بالصفحات
-  xml = xml.replace(/<w:sectPr([^>]*)>(?![\s\S]*<w:sectPr)/, `<w:sectPr$1><w:footerReference w:type="default" r:id="${CONTRACT_FOOTER_REL}"/>`);
-  return xml;
-}
-function contractFooterXml() {
-  const rPr = '<w:rPr><w:rFonts w:cs="Arial"/><w:b/><w:bCs/><w:sz w:val="30"/><w:szCs w:val="30"/><w:rtl/><w:lang w:bidi="ar-EG"/></w:rPr>';
-  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-    '<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
-    '<w:p><w:pPr><w:tabs><w:tab w:val="center" w:pos="2300"/><w:tab w:val="center" w:pos="8300"/></w:tabs><w:bidi/><w:spacing w:before="120" w:after="0"/>' + rPr + '</w:pPr>' +
-    `<w:r>${rPr}<w:tab/><w:t>الطرف الأول</w:t></w:r><w:r>${rPr}<w:tab/><w:t>الطرف الثاني</w:t></w:r></w:p></w:ftr>`;
-}
-async function addContractFooter(zip) {
-  zip.file('word/footer1.xml', contractFooterXml());
-  const relsPath = 'word/_rels/document.xml.rels';
-  let rels = await zip.file(relsPath).async('string');
-  if (!rels.includes(CONTRACT_FOOTER_REL)) {
-    rels = rels.replace('</Relationships>', `<Relationship Id="${CONTRACT_FOOTER_REL}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`);
-    zip.file(relsPath, rels);
-  }
-  let ct = await zip.file('[Content_Types].xml').async('string');
-  if (!ct.includes('/word/footer1.xml')) {
-    ct = ct.replace('</Types>', '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>');
-    zip.file('[Content_Types].xml', ct);
-  }
-}
-
 async function buildContractDocx(templateId, d) {
   const bundle = await loadContractBundle();
   const entry = bundle?.file(`${templateId}.docx`);
   if (!entry) throw new Error('template not found');
   const zip = await window.JSZip.loadAsync(await entry.async('arraybuffer'));
   const xml = await zip.file('word/document.xml').async('string');
-  zip.file('word/document.xml', layoutContractXml(fillContractXml(xml, d)));
-  await addContractFooter(zip);
+  zip.file('word/document.xml', fillContractXml(xml, d));
   return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', compression: 'DEFLATE' });
 }
 
@@ -484,9 +417,6 @@ const CONTRACT_PRINT_CSS = `
   .contract-table { width: 100%; border-collapse: collapse; }
   .contract-table td { padding: 0; }
   .contract-table .pad td { height: 7mm; }
-  .contract-table tfoot .pad td { height: 19mm; }
-  .contract-sig { position: fixed; left: 0; right: 0; bottom: 6mm; display: flex; justify-content: space-around; font-family: Arial, sans-serif; font-weight: 700; font-size: 15pt; }
-  .contract-keep { break-after: avoid; page-break-after: avoid; }
   .contract-body section.docx { width: auto !important; min-height: 0 !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; background: transparent !important; }
   .contract-body p { orphans: 2; widows: 2; }
   .contract-hint { font-family: sans-serif; text-align: center; padding: 10px; background: #fdf3dc; color: #7a5c0a; }
@@ -508,9 +438,8 @@ async function printContract() {
     await loadScriptOnce(DOCX_PREVIEW_URL, () => !!window.docx);
     const body = document.createElement('div'), styles = document.createElement('div');
     await window.docx.renderAsync(blob, body, styles, { inWrapper: false, breakPages: false, ignoreWidth: true, ignoreHeight: true, ignoreLastRenderedPageBreak: true, renderHeaders: false, renderFooters: false });
-    body.querySelectorAll('p').forEach(p => { if (/^\s*(البند|تمهيد|الطرف الأول \(البائع\)|الاسم\s*\/)/.test(p.textContent)) p.classList.add('contract-keep'); });
     win.document.open();
-    win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${contractHtmlEsc(contractFileName(d))}</title>${styles.innerHTML}<style>${CONTRACT_PRINT_CSS}</style></head><body><div class="contract-hint">لو نافذة الطباعة ما ظهرتش: اختار «طباعة» من قائمة المتصفح</div><div class="contract-frame"></div><div class="contract-sig"><span>الطرف الأول</span><span>الطرف الثاني</span></div><div class="contract-body"><table class="contract-table"><thead><tr class="pad"><td></td></tr></thead><tfoot><tr class="pad"><td></td></tr></tfoot><tbody><tr><td>${body.innerHTML}</td></tr></tbody></table></div></body></html>`);
+    win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${contractHtmlEsc(contractFileName(d))}</title>${styles.innerHTML}<style>${CONTRACT_PRINT_CSS}</style></head><body><div class="contract-hint">لو نافذة الطباعة ما ظهرتش: اختار «طباعة» من قائمة المتصفح</div><div class="contract-frame"></div><div class="contract-body"><table class="contract-table"><thead><tr class="pad"><td></td></tr></thead><tfoot><tr class="pad"><td></td></tr></tfoot><tbody><tr><td>${body.innerHTML}</td></tr></tbody></table></div></body></html>`);
     win.document.close();
     setTimeout(() => { win.focus(); win.print(); }, 400);
   } catch (e) {
