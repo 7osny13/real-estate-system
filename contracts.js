@@ -19,6 +19,7 @@ const CONTRACT_BLANK_DATE = '...... / ...... / ..........';
 
 let contractInst = [];       // أقساط العقد الظاهرة في الشاشة (قابلة للتعديل قبل الطباعة)
 let contractSaleId = null;
+let contractSaleIsInst = false;  // نوع سداد البيعة — يُستخدم لو لسه ما اتختارش نموذج
 let contractBundle = null;   // ملف النماذج (JSZip) بعد تحميله من التخزين الخاص
 const CONTRACT_BUNDLE_PATH = 'contract-templates/templates.zip';
 
@@ -125,7 +126,9 @@ function fillContractXml(xml, d) {
   xml = xml.replace(instRe, (para) => {
     const rows = (d.installments || []).filter(r => Number(r.amount) > 0 || r.dueDate);
     const list = rows.length ? rows : [{ amount: 0, dueDate: '' }];
-    return list.map(r => put(para, {
+    // نسخ سطر القسط بنفس رقم التعريف بيخلي Word يعترض — بنشيل الأرقام من النسخ
+    const clone = para.replace(/ w14:(paraId|textId)="[^"]*"/g, '');
+    return list.map((r, i) => put(i ? clone : para, {
       inst_amount: Number(r.amount) > 0 ? contractMoney(r.amount) : '',
       inst_words: Number(r.amount) > 0 ? tafqeet(r.amount) : '',
       inst_date: contractDate(r.dueDate)
@@ -174,12 +177,76 @@ function renderContractBundleStatus(state) {
   const el = document.getElementById('contract-bundle-status');
   if (!el) return;
   const ready = !!contractBundle;
-  document.querySelectorAll('#contract-form .contract-go').forEach(b => { b.disabled = !ready; });
+  updateContractButtons();
   const picker = `<input type="file" id="contract-bundle-input" accept=".zip,application/zip" style="display:none" onchange="uploadContractBundle(this)">`;
   if (state === 'loading') { el.innerHTML = '<div style="color:var(--text-muted);font-size:.85rem">جاري تحميل نماذج العقود…</div>'; return; }
   el.innerHTML = ready
     ? `${picker}<div style="font-size:.8rem;color:var(--text-muted)">نماذج العقود جاهزة — <a href="#" onclick="document.getElementById('contract-bundle-input').click();return false">تحديث ملف النماذج</a></div>`
     : `${picker}<div class="gen-box" style="margin-bottom:1rem"><div style="font-weight:700;margin-bottom:.4rem">📂 نماذج العقود لسه ما اترفعتش</div><div style="font-size:.85rem;margin-bottom:.6rem">ارفع ملف <strong>contract-templates.zip</strong> مرة واحدة — بيتحفظ في التخزين الخاص للموقع.</div><button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('contract-bundle-input').click()">⬆️ رفع ملف النماذج</button></div>`;
+}
+
+// ── ترتيب الصفحات ───────────────────────────────────────
+// النماذج الأصلية كانت بتعتمد على سطر توقيع وسطور فاضية في مكان ثابت عشان كل صفحة تخلص بالتوقيع.
+// مع تغيير عدد الأقساط أو طول البيانات الكلام بيزق وتظهر فراغات وصفحة فاضية.
+// الحل: التوقيع يتحط في تذييل الصفحة (بيظهر أسفل كل صفحة تلقائياً)، وتتشال سطور التوقيع والفراغات من النص،
+// وعناوين البنود تفضل لازقة في الكلام اللي بعدها.
+const CONTRACT_FOOTER_REL = 'rIdContractFooter';
+function contractParaText(p) { return (p.match(/<w:t(?: [^>]*)?>[^<]*/g) || []).map(t => t.replace(/^<w:t(?: [^>]*)?>/, '')).join(''); }
+function contractKeepNext(p) {
+  if (p.includes('<w:keepNext/>')) return p;
+  if (/<w:pPr>/.test(p)) {
+    return /<w:pPr><w:pStyle [^>]*\/>/.test(p)
+      ? p.replace(/(<w:pPr><w:pStyle [^>]*\/>)/, '$1<w:keepNext/>')
+      : p.replace('<w:pPr>', '<w:pPr><w:keepNext/>');
+  }
+  return p.replace(/^(<w:p(?: [^>]*)?>)/, '$1<w:pPr><w:keepNext/></w:pPr>');
+}
+function layoutContractXml(xml) {
+  const paraRe = /<w:p[ >][\s\S]*?<\/w:p>/g;
+  const paras = [];
+  let m;
+  while ((m = paraRe.exec(xml))) paras.push({ start: m.index, end: m.index + m[0].length, xml: m[0], text: contractParaText(m[0]) });
+  const isEmpty = (p) => !p.text.trim() && !/<w:drawing|<w:pict|<w:object/.test(p.xml);
+  const isPageSig = (p) => p.text.includes('الطرف الأول') && p.text.includes('الطرف الثاني') && !p.text.includes('البائع');
+  let lastReal = -1;
+  paras.forEach((p, i) => { if (!isEmpty(p)) lastReal = i; });
+  let dropping = false;
+  paras.forEach((p, i) => {
+    const t = p.text.trim();
+    if (isPageSig(p) || t.startsWith('تابع البند')) { p.out = ''; dropping = true; return; }
+    if (dropping && isEmpty(p)) { p.out = ''; return; }
+    dropping = false;
+    if (i > lastReal && i > 0) { p.out = ''; return; }          // سطور فاضية في آخر العقد = صفحة زيادة
+    if (/^(البند|تمهيد)/.test(t) || t.startsWith('الطرف الأول (البائع)') || /^الاسم\s*\//.test(t)) p.out = contractKeepNext(p.xml);
+  });
+  for (let i = paras.length - 1; i >= 0; i--) {
+    const p = paras[i];
+    if (p.out !== undefined) xml = xml.slice(0, p.start) + p.out + xml.slice(p.end);
+  }
+  // ربط التذييل بالصفحات
+  xml = xml.replace(/<w:sectPr([^>]*)>(?![\s\S]*<w:sectPr)/, `<w:sectPr$1><w:footerReference w:type="default" r:id="${CONTRACT_FOOTER_REL}"/>`);
+  return xml;
+}
+function contractFooterXml() {
+  const rPr = '<w:rPr><w:rFonts w:cs="Arial"/><w:b/><w:bCs/><w:sz w:val="30"/><w:szCs w:val="30"/><w:rtl/><w:lang w:bidi="ar-EG"/></w:rPr>';
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+    '<w:p><w:pPr><w:tabs><w:tab w:val="center" w:pos="2300"/><w:tab w:val="center" w:pos="8300"/></w:tabs><w:bidi/><w:spacing w:before="120" w:after="0"/>' + rPr + '</w:pPr>' +
+    `<w:r>${rPr}<w:tab/><w:t>الطرف الأول</w:t></w:r><w:r>${rPr}<w:tab/><w:t>الطرف الثاني</w:t></w:r></w:p></w:ftr>`;
+}
+async function addContractFooter(zip) {
+  zip.file('word/footer1.xml', contractFooterXml());
+  const relsPath = 'word/_rels/document.xml.rels';
+  let rels = await zip.file(relsPath).async('string');
+  if (!rels.includes(CONTRACT_FOOTER_REL)) {
+    rels = rels.replace('</Relationships>', `<Relationship Id="${CONTRACT_FOOTER_REL}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`);
+    zip.file(relsPath, rels);
+  }
+  let ct = await zip.file('[Content_Types].xml').async('string');
+  if (!ct.includes('/word/footer1.xml')) {
+    ct = ct.replace('</Types>', '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>');
+    zip.file('[Content_Types].xml', ct);
+  }
 }
 
 async function buildContractDocx(templateId, d) {
@@ -188,7 +255,8 @@ async function buildContractDocx(templateId, d) {
   if (!entry) throw new Error('template not found');
   const zip = await window.JSZip.loadAsync(await entry.async('arraybuffer'));
   const xml = await zip.file('word/document.xml').async('string');
-  zip.file('word/document.xml', fillContractXml(xml, d));
+  zip.file('word/document.xml', layoutContractXml(fillContractXml(xml, d)));
+  await addContractFooter(zip);
   return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', compression: 'DEFLATE' });
 }
 
@@ -204,8 +272,10 @@ function ensureContractModal() {
           <div id="contract-bundle-status"></div>
           <div class="form-group" style="margin-bottom:1rem"><label class="form-label">نموذج العقد *</label>
             <select class="form-control" name="templateId" onchange="onContractTemplateChange()">
+              <option value="">— اختار نموذج العقد —</option>
               ${CONTRACT_TEMPLATES.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
             </select>
+            <div id="contract-template-hint" style="display:none;margin-top:.4rem;color:var(--danger);font-weight:700;font-size:.85rem">⚠️ المشروع ده له أكثر من نموذج — اختار التشطيب المتفق عليه (على الطوب ولا نصف تشطيب)</div>
           </div>
           <div class="ledger-title" style="margin:0 0 .6rem">👤 المشتري</div>
           <div class="form-grid">
@@ -275,8 +345,10 @@ function openContractModal(saleId) {
   // اختيار النموذج المناسب تلقائياً من اسم المشروع ونوع السداد
   const pname = project?.projectName || '';
   const group = /حجاز/.test(pname) ? 'hegaz' : /محكم|موظف/.test(pname) ? 'mahkama' : null;
-  const guess = CONTRACT_TEMPLATES.find(t => (!group || t.group === group) && t.type === (isInst ? 'installment' : 'paid'));
-  f.templateId.value = ex.templateId || guess?.id || CONTRACT_TEMPLATES[0].id;
+  // لو المشروع له أكتر من نموذج (على الطوب / نصف تشطيب) ما نختارش بالتخمين — لازم يتحدد
+  const guesses = CONTRACT_TEMPLATES.filter(t => (!group || t.group === group) && t.type === (isInst ? 'installment' : 'paid'));
+  contractSaleIsInst = isInst;
+  f.templateId.value = ex.templateId || (guesses.length === 1 ? guesses[0].id : '');
 
   f.buyerTitle.value = ex.buyerTitle || 'السيد';
   f.buyerName.value = sale.customerName || '';
@@ -307,11 +379,22 @@ function openContractModal(saleId) {
 
 function contractTemplate() {
   const id = document.getElementById('contract-form').templateId.value;
-  return CONTRACT_TEMPLATES.find(t => t.id === id) || CONTRACT_TEMPLATES[0];
+  return CONTRACT_TEMPLATES.find(t => t.id === id) || null;
+}
+function contractIsInst() {
+  const t = contractTemplate();
+  return t ? t.type === 'installment' : contractSaleIsInst;
+}
+function updateContractButtons() {
+  const ok = !!contractBundle && !!contractTemplate();
+  document.querySelectorAll('#contract-form .contract-go').forEach(b => { b.disabled = !ok; });
+  const hint = document.getElementById('contract-template-hint');
+  if (hint) hint.style.display = contractTemplate() ? 'none' : '';
 }
 
 function onContractTemplateChange() {
-  const isInst = contractTemplate().type === 'installment';
+  const isInst = contractIsInst();
+  updateContractButtons();
   document.getElementById('contract-inst-box').style.display = isInst ? '' : 'none';
   document.getElementById('contract-paid-group').style.display = isInst ? '' : 'none';
   renderContractInst();
@@ -342,7 +425,7 @@ function updateContractSummary() {
   if (!f || !el) return;
   const price = parseFloat(f.price.value) || 0;
   let html = price > 0 ? `<div>الثمن بالحروف: <strong>${tafqeet(price)} جنيه</strong></div>` : '';
-  if (contractTemplate().type === 'installment') {
+  if (contractIsInst()) {
     const paid = parseFloat(f.paid.value) || 0;
     const instTotal = contractInst.reduce((s, r) => s + (Number(r.amount) || 0), 0);
     const diff = price - paid - instTotal;
@@ -354,7 +437,7 @@ function updateContractSummary() {
 
 function readContractForm() {
   const f = document.getElementById('contract-form');
-  const isInst = contractTemplate().type === 'installment';
+  const isInst = contractIsInst();
   return {
     date: f.date.value, deliveryDate: f.deliveryDate.value,
     buyerTitle: f.buyerTitle.value, buyerName: f.buyerName.value, buyerId: f.buyerId.value,
@@ -372,6 +455,7 @@ function contractFileName(d) {
 }
 
 async function downloadContractWord() {
+  if (!contractTemplate()) { showToast('اختار نموذج العقد الأول', 'warning'); return; }
   const d = readContractForm();
   saveContractExtras();
   showLoading();
@@ -400,6 +484,9 @@ const CONTRACT_PRINT_CSS = `
   .contract-table { width: 100%; border-collapse: collapse; }
   .contract-table td { padding: 0; }
   .contract-table .pad td { height: 7mm; }
+  .contract-table tfoot .pad td { height: 19mm; }
+  .contract-sig { position: fixed; left: 0; right: 0; bottom: 6mm; display: flex; justify-content: space-around; font-family: Arial, sans-serif; font-weight: 700; font-size: 15pt; }
+  .contract-keep { break-after: avoid; page-break-after: avoid; }
   .contract-body section.docx { width: auto !important; min-height: 0 !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; background: transparent !important; }
   .contract-body p { orphans: 2; widows: 2; }
   .contract-hint { font-family: sans-serif; text-align: center; padding: 10px; background: #fdf3dc; color: #7a5c0a; }
@@ -407,6 +494,7 @@ const CONTRACT_PRINT_CSS = `
 `;
 
 async function printContract() {
+  if (!contractTemplate()) { showToast('اختار نموذج العقد الأول', 'warning'); return; }
   const d = readContractForm();
   saveContractExtras();
   // لازم النافذة تتفتح فوراً مع الضغطة — لو اتأخرت المتصفح بيمنعها
@@ -420,8 +508,9 @@ async function printContract() {
     await loadScriptOnce(DOCX_PREVIEW_URL, () => !!window.docx);
     const body = document.createElement('div'), styles = document.createElement('div');
     await window.docx.renderAsync(blob, body, styles, { inWrapper: false, breakPages: false, ignoreWidth: true, ignoreHeight: true, ignoreLastRenderedPageBreak: true, renderHeaders: false, renderFooters: false });
+    body.querySelectorAll('p').forEach(p => { if (/^\s*(البند|تمهيد|الطرف الأول \(البائع\)|الاسم\s*\/)/.test(p.textContent)) p.classList.add('contract-keep'); });
     win.document.open();
-    win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${contractHtmlEsc(contractFileName(d))}</title>${styles.innerHTML}<style>${CONTRACT_PRINT_CSS}</style></head><body><div class="contract-hint">لو نافذة الطباعة ما ظهرتش: اختار «طباعة» من قائمة المتصفح</div><div class="contract-frame"></div><div class="contract-body"><table class="contract-table"><thead><tr class="pad"><td></td></tr></thead><tfoot><tr class="pad"><td></td></tr></tfoot><tbody><tr><td>${body.innerHTML}</td></tr></tbody></table></div></body></html>`);
+    win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${contractHtmlEsc(contractFileName(d))}</title>${styles.innerHTML}<style>${CONTRACT_PRINT_CSS}</style></head><body><div class="contract-hint">لو نافذة الطباعة ما ظهرتش: اختار «طباعة» من قائمة المتصفح</div><div class="contract-frame"></div><div class="contract-sig"><span>الطرف الأول</span><span>الطرف الثاني</span></div><div class="contract-body"><table class="contract-table"><thead><tr class="pad"><td></td></tr></thead><tfoot><tr class="pad"><td></td></tr></tfoot><tbody><tr><td>${body.innerHTML}</td></tr></tbody></table></div></body></html>`);
     win.document.close();
     setTimeout(() => { win.focus(); win.print(); }, 400);
   } catch (e) {
