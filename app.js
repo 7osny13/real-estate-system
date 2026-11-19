@@ -3522,6 +3522,8 @@ const UNIT_STATUS = {
   sold:      { label: 'مباعة', cls: 'u-sold' }
 };
 let unitsFilter = '';
+// وضع اختيار وحدات معينة للسماسرة: null = مقفول، Set = الوحدات المختارة
+let brokerPick = null;
 
 const normUnitNo = s => String(s || '').trim().toLowerCase().replace(/\s+/g, '');
 
@@ -3640,6 +3642,7 @@ function ensureUnitsModals() {
 function openUnitsModal(projectId) {
   ensureUnitsModals();
   unitsFilter = '';
+  brokerPick = null;
   document.getElementById('units-modal').dataset.projectId = projectId;
   renderUnitsModal();
   document.getElementById('units-modal').classList.add('active');
@@ -3678,7 +3681,11 @@ function renderUnitsModal() {
             const st = getUnitStatus(u);
             const sale = getUnitSale(u);
             const who = st === 'sold' ? (sale ? shortName(sale.customerName) : '') : st === 'reserved' ? shortName(u.reservedBy) : '';
-            return `<button type="button" class="u-tile ${UNIT_STATUS[st].cls}" onclick="openUnitForm('${u.id}')">
+            const pickable = st === 'available';
+            const picked = brokerPick && brokerPick.has(u.id);
+            const click = brokerPick ? (pickable ? `toggleBrokerPick('${u.id}')` : `showToast('اختار من الوحدات المتاحة بس', 'info')`) : `openUnitForm('${u.id}')`;
+            return `<button type="button" class="u-tile ${UNIT_STATUS[st].cls}${brokerPick ? (picked ? ' u-picked' : pickable ? ' u-pickable' : ' u-dim') : ''}" onclick="${click}">
+              ${picked ? '<span class="u-check">✓</span>' : ''}
               <span class="u-no">${u.unitType === 'shop' ? '🏪 ' : ''}${u.unitNumber}</span>
               <span class="u-meta">${[u.model ? `نموذج ${u.model}` : '', u.area ? `${u.area} م²` : ''].filter(Boolean).join(' · ') || '&nbsp;'}</span>
               <span class="u-who">${who || UNIT_STATUS[st].label}</span>
@@ -3696,13 +3703,79 @@ function renderUnitsModal() {
       <div style="display:flex;gap:.5rem;flex-wrap:wrap">
         ${list.length ? `<button class="btn btn-pdf btn-sm" onclick="printBrokerReport('${projectId}')">📤 تقرير السماسرة</button>
         <button class="btn btn-wa btn-sm" onclick="copyAvailableUnitsText('${projectId}')">📋 نسخ المتاح</button>
+        ${counts.available ? `<button class="btn btn-primary btn-sm" onclick="startBrokerPick()">☑️ اختيار وحدات معينة</button>` : ''}
         <button class="btn btn-danger btn-sm" onclick="deleteAllProjectUnits('${projectId}')">🗑️ مسح الكل</button>` : ''}
         <button class="btn btn-gold btn-sm" onclick="openUnitsGenerator('${projectId}')">⚡ توليد وحدات</button>
         <button class="btn btn-primary btn-sm" onclick="openUnitForm(null, '${projectId}')">➕ وحدة</button>
       </div>
     </div>
-    ${orphanSales.length ? `<div class="info-box">💡 ${orphanSales.length} بيعة في هذا المشروع غير مربوطة بوحدة: ${orphanSales.map(s => `<b>${s.unitNumber || 'بدون رقم'}</b> (${shortName(s.customerName)})`).join('، ')}.<br>افتح الوحدة المباعة واختر البيعة من "البيعة المرتبطة".</div>` : ''}
+    ${brokerPick ? renderBrokerPickBar(projectId, list) : ''}
+    ${orphanSales.length && !brokerPick ? `<div class="info-box">💡 ${orphanSales.length} بيعة في هذا المشروع غير مربوطة بوحدة: ${orphanSales.map(s => `<b>${s.unitNumber || 'بدون رقم'}</b> (${shortName(s.customerName)})`).join('، ')}.<br>افتح الوحدة المباعة واختر البيعة من "البيعة المرتبطة".</div>` : ''}
     ${grid}`;
+}
+
+// ── اختيار وحدات معينة للسماسرة ───────────────────────────
+function startBrokerPick() {
+  brokerPick = new Set();
+  unitsFilter = 'available';
+  renderUnitsModal();
+}
+
+function endBrokerPick() {
+  brokerPick = null;
+  unitsFilter = '';
+  renderUnitsModal();
+}
+
+function toggleBrokerPick(id) {
+  if (!brokerPick) return;
+  brokerPick.has(id) ? brokerPick.delete(id) : brokerPick.add(id);
+  renderUnitsModal();
+}
+
+// اختيار سريع: 'all' كل المتاح، 'none' مسح الاختيار، 'm:A' نموذج، 'f:3' دور
+function brokerPickQuick(what) {
+  if (!brokerPick) return;
+  const projectId = document.getElementById('units-modal').dataset.projectId;
+  const avail = units.filter(u => u.projectId === projectId && getUnitStatus(u) === 'available');
+  if (what === 'none') { brokerPick.clear(); renderUnitsModal(); return; }
+  let group = avail;
+  if (what.startsWith('m:')) group = avail.filter(u => (u.model || '') === what.slice(2));
+  if (what.startsWith('f:')) group = avail.filter(u => String(u.floor) === what.slice(2));
+  // لو المجموعة كلها مختارة → إلغاء اختيارها، غير كده → اختيارها كلها
+  const allIn = group.length && group.every(u => brokerPick.has(u.id));
+  group.forEach(u => allIn ? brokerPick.delete(u.id) : brokerPick.add(u.id));
+  renderUnitsModal();
+}
+
+function renderBrokerPickBar(projectId, list) {
+  const avail = list.filter(u => getUnitStatus(u) === 'available');
+  const models = [...new Set(avail.map(u => u.model).filter(Boolean))].sort();
+  const floors = [...new Set(avail.map(u => u.floor))].sort((x, y) => x - y);
+  const n = brokerPick.size;
+  const chip = (key, label) => {
+    const group = key === 'all' ? avail
+      : key.startsWith('m:') ? avail.filter(u => (u.model || '') === key.slice(2))
+      : avail.filter(u => String(u.floor) === key.slice(2));
+    const on = group.length && group.every(u => brokerPick.has(u.id));
+    return `<button type="button" class="u-chip ${on ? 'on' : ''}" onclick="brokerPickQuick('${key}')">${label}</button>`;
+  };
+  return `
+    <div class="pick-box">
+      <div class="pick-hint">دوس على الوحدات المتاحة اللي عايز تبعتها، أو اختار مجموعة:</div>
+      <div class="u-chips" style="margin-bottom:.5rem">
+        ${chip('all', `كل المتاح (${avail.length})`)}
+        ${models.map(m => chip('m:' + m, `نموذج ${m}`)).join('')}
+        ${floors.length > 1 ? floors.map(f => chip('f:' + f, floorLabel(f))).join('') : ''}
+        ${n ? `<button type="button" class="u-chip" onclick="brokerPickQuick('none')">✕ مسح الاختيار</button>` : ''}
+      </div>
+      <div class="pick-actions">
+        <span class="pick-count">المختار: <b>${n}</b></span>
+        <button class="btn btn-pdf btn-sm" ${n ? '' : 'disabled style="opacity:.45"'} onclick="printBrokerReport('${projectId}', [...brokerPick])">📤 تقرير بالمختار</button>
+        <button class="btn btn-wa btn-sm" ${n ? '' : 'disabled style="opacity:.45"'} onclick="copyAvailableUnitsText('${projectId}', [...brokerPick])">📋 نسخ المختار</button>
+        <button class="btn btn-ghost btn-sm" onclick="endBrokerPick()">إلغاء</button>
+      </div>
+    </div>`;
 }
 
 function toggleUnitReserveFields() {
@@ -3972,15 +4045,17 @@ async function saveGeneratedUnits() {
 // ============================================================
 function brokerUnitRows(projectId) {
   return sortUnits(units.filter(u => u.projectId === projectId)).map(u => ({
-    number: u.unitNumber, floor: u.floor, model: u.model, area: u.area, direction: u.direction,
+    id: u.id, number: u.unitNumber, floor: u.floor, model: u.model, area: u.area, direction: u.direction,
     type: u.unitType, status: getUnitStatus(u)
   }));
 }
 
-function printBrokerReport(projectId) {
+// ids: لو اتبعتت = تقرير بالوحدات المختارة بس (من غير عدد المباع والمحجوز وباقي المشروع)
+function printBrokerReport(projectId, ids) {
   const project = projects.find(p => p.id === projectId);
-  const rows = brokerUnitRows(projectId);
-  if (!project || rows.length === 0) { showToast('لا توجد وحدات لهذا المشروع', 'warning'); return; }
+  const picked = Array.isArray(ids) ? new Set(ids) : null;
+  const rows = brokerUnitRows(projectId).filter(r => !picked || (picked.has(r.id) && r.status === 'available'));
+  if (!project || rows.length === 0) { showToast(picked ? 'اختار وحدة متاحة واحدة على الأقل' : 'لا توجد وحدات لهذا المشروع', 'warning'); return; }
   const counts = { available: 0, reserved: 0, sold: 0 };
   rows.forEach(r => counts[r.status]++);
   const colors = { available: ['#eef8f2', '#1a8a5f'], reserved: ['#fdf6e3', '#b07d12'], sold: ['#fce8e6', '#d6453d'] };
@@ -4001,13 +4076,14 @@ function printBrokerReport(projectId) {
     </style>
     <div class="pdf-header">
       <h1>${project.projectName}</h1>
-      <p>بيان الوحدات${project.location ? ` — ${project.location}` : ''}</p>
+      <p>${picked ? 'وحدات متاحة' : 'بيان الوحدات'}${project.location ? ` — ${project.location}` : ''}</p>
       <div class="pdf-meta" style="color:#fff;opacity:.85"><span>بتاريخ: ${dateStr}</span></div>
     </div>
+    ${picked ? `<div class="br-legend"><div class="br-leg" style="background:${colors.available[0]};border-color:${colors.available[1]};color:${colors.available[1]}">عدد الوحدات: ${rows.length}</div></div>` : `
     <div class="br-legend">
       ${['available', 'reserved', 'sold'].map(k => `<div class="br-leg" style="background:${colors[k][0]};border-color:${colors[k][1]};color:${colors[k][1]}">${UNIT_STATUS[k].label}: ${counts[k]}</div>`).join('')}
       <div class="br-leg" style="border-color:#999;color:#444">الإجمالي: ${rows.length}</div>
-    </div>
+    </div>`}
     ${floors.map(f => `
       <div class="br-floor">
         <div class="br-floor-label">${floorLabel(f)}</div>
@@ -4020,20 +4096,22 @@ function printBrokerReport(projectId) {
             </div>`).join('')}
         </div>
       </div>`).join('')}
-    <div class="section-title">الوحدات المتاحة (${counts.available})</div>
+    <div class="section-title">${picked ? 'تفاصيل الوحدات' : 'الوحدات المتاحة'} (${counts.available})</div>
     ${counts.available === 0 ? '<p>لا توجد وحدات متاحة حالياً</p>' : `
     <table><thead><tr><th>الوحدة</th><th>النوع</th><th>الدور</th><th>النموذج</th><th>المساحة</th><th>الاتجاه</th></tr></thead>
     <tbody>${rows.filter(r => r.status === 'available').map(r => `<tr><td style="font-weight:700">${r.number}</td><td>${r.type === 'shop' ? 'محل' : 'شقة'}</td><td>${floorLabel(r.floor)}</td><td>${r.model || '—'}</td><td>${r.area ? `${r.area} م²` : '—'}</td><td>${r.direction || '—'}</td></tr>`).join('')}</tbody></table>`}
     <div class="footer"><span>${project.projectName}</span><span>${dateStr}</span></div>`;
 
-  openPrintWindow(html, `بيان وحدات ${project.projectName}`);
+  openPrintWindow(html, `${picked ? 'وحدات متاحة' : 'بيان وحدات'} ${project.projectName}`);
 }
 
 // نص جاهز للصق في واتساب: الوحدات المتاحة فقط، مجمّعة بالدور
-async function copyAvailableUnitsText(projectId) {
+async function copyAvailableUnitsText(projectId, ids) {
   const project = projects.find(p => p.id === projectId);
-  const rows = brokerUnitRows(projectId).filter(r => r.status === 'available');
+  const picked = Array.isArray(ids) ? new Set(ids) : null;
+  const rows = brokerUnitRows(projectId).filter(r => r.status === 'available' && (!picked || picked.has(r.id)));
   if (!project) return;
+  if (picked && rows.length === 0) { showToast('اختار وحدة متاحة واحدة على الأقل', 'warning'); return; }
   const dateStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
   const floors = [...new Set(rows.map(r => r.floor))].sort((x, y) => x - y);
   const text = rows.length === 0
@@ -4044,7 +4122,7 @@ async function copyAvailableUnitsText(projectId) {
         .join('\n');
   try {
     await navigator.clipboard.writeText(text);
-    showToast('تم نسخ قائمة الوحدات المتاحة — الصقها في واتساب');
+    showToast(picked ? `تم نسخ ${rows.length} وحدة — الصقها في واتساب` : 'تم نسخ قائمة الوحدات المتاحة — الصقها في واتساب');
   } catch (e) {
     prompt('انسخ النص:', text);
   }
